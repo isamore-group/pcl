@@ -10,57 +10,133 @@ if(NOT build)
   return()
 endif()
 
-PCL_ADD_TEST(timestamp test_timestamp
+if(PCL_ENABLE_LLVM_IR)
+  PCL_ADD_TEST_WITH_INSTRUMENTATION(timestamp test_timestamp
               FILES test_timestamp.cpp
               LINK_WITH pcl_gtest pcl_io)
+else()
+  PCL_ADD_TEST(timestamp test_timestamp
+              FILES test_timestamp.cpp
+              LINK_WITH pcl_gtest pcl_io)
+endif()
 
-PCL_ADD_TEST(io_io test_io
+if(PCL_ENABLE_LLVM_IR)
+  PCL_ADD_TEST_WITH_INSTRUMENTATION(io_io test_io
               FILES test_io.cpp
               LINK_WITH pcl_gtest pcl_io)
+else()
+  PCL_ADD_TEST(io_io test_io
+              FILES test_io.cpp
+              LINK_WITH pcl_gtest pcl_io)
+endif()
 
-PCL_ADD_TEST(io_split test_split
+if(PCL_ENABLE_LLVM_IR)
+  PCL_ADD_TEST_WITH_INSTRUMENTATION(io_split test_split
               FILES test_split.cpp
               LINK_WITH pcl_gtest pcl_io)
+else()
+  PCL_ADD_TEST(io_split test_split
+              FILES test_split.cpp
+              LINK_WITH pcl_gtest pcl_io)
+endif()
 
-PCL_ADD_TEST(io_iterators test_iterators
+if(PCL_ENABLE_LLVM_IR)
+  PCL_ADD_TEST_WITH_INSTRUMENTATION(io_iterators test_iterators
               FILES test_iterators.cpp
               LINK_WITH pcl_gtest pcl_io)
+else()
+  PCL_ADD_TEST(io_iterators test_iterators
+              FILES test_iterators.cpp
+              LINK_WITH pcl_gtest pcl_io)
+endif()
 
-PCL_ADD_TEST(compression_range_coder test_range_coder
+if(PCL_ENABLE_LLVM_IR)
+  PCL_ADD_TEST_WITH_INSTRUMENTATION(compression_range_coder test_range_coder
           FILES test_range_coder.cpp
           LINK_WITH pcl_gtest pcl_io)
+else()
+  PCL_ADD_TEST(compression_range_coder test_range_coder
+          FILES test_range_coder.cpp
+          LINK_WITH pcl_gtest pcl_io)
+endif()
 
-PCL_ADD_TEST (io_grabbers test_grabbers
+if(PCL_ENABLE_LLVM_IR)
+  PCL_ADD_TEST_WITH_INSTRUMENTATION (io_grabbers test_grabbers
               FILES test_grabbers.cpp
               LINK_WITH pcl_gtest pcl_io
               ARGUMENTS "${PCL_SOURCE_DIR}/test/grabber_sequences")
+else()
+  PCL_ADD_TEST (io_grabbers test_grabbers
+              FILES test_grabbers.cpp
+              LINK_WITH pcl_gtest pcl_io
+              ARGUMENTS "${PCL_SOURCE_DIR}/test/grabber_sequences")
+endif()
 
-PCL_ADD_TEST(io_ply_io test_ply_io
+if(PCL_ENABLE_LLVM_IR)
+  PCL_ADD_TEST_WITH_INSTRUMENTATION(io_ply_io test_ply_io
               FILES test_ply_io.cpp
               LINK_WITH pcl_gtest pcl_io)
+else()
+  PCL_ADD_TEST(io_ply_io test_ply_io
+              FILES test_ply_io.cpp
+              LINK_WITH pcl_gtest pcl_io)
+endif()
 
 # Uses VTK readers to verify
 if(VTK_FOUND AND NOT ANDROID)
-  PCL_ADD_TEST (io_ply_mesh_io test_ply_mesh_io
+    if(PCL_ENABLE_LLVM_IR)
+    PCL_ADD_TEST_WITH_INSTRUMENTATION (io_ply_mesh_io test_ply_mesh_io
                 FILES test_ply_mesh_io.cpp
                 LINK_WITH pcl_gtest pcl_io
                 ARGUMENTS "${PCL_SOURCE_DIR}/test/tum_rabbit.vtk")
+  else()
+    PCL_ADD_TEST (io_ply_mesh_io test_ply_mesh_io
+                FILES test_ply_mesh_io.cpp
+                LINK_WITH pcl_gtest pcl_io
+                ARGUMENTS "${PCL_SOURCE_DIR}/test/tum_rabbit.vtk")
+  endif()
 endif()
 
-PCL_ADD_TEST(point_cloud_image_extractors test_point_cloud_image_extractors
+if(PCL_ENABLE_LLVM_IR)
+  PCL_ADD_TEST_WITH_INSTRUMENTATION(point_cloud_image_extractors test_point_cloud_image_extractors
              FILES test_point_cloud_image_extractors.cpp
              LINK_WITH pcl_gtest pcl_io)
+else()
+  PCL_ADD_TEST(point_cloud_image_extractors test_point_cloud_image_extractors
+             FILES test_point_cloud_image_extractors.cpp
+             LINK_WITH pcl_gtest pcl_io)
+endif()
 
-PCL_ADD_TEST(buffers test_buffers
+if(PCL_ENABLE_LLVM_IR)
+  PCL_ADD_TEST_WITH_INSTRUMENTATION(buffers test_buffers
              FILES test_buffers.cpp
              LINK_WITH pcl_gtest pcl_common pcl_io)
+else()
+  PCL_ADD_TEST(buffers test_buffers
+             FILES test_buffers.cpp
+             LINK_WITH pcl_gtest pcl_common pcl_io)
+endif()
 
-PCL_ADD_TEST(io_octree_compression test_octree_compression
+if(PCL_ENABLE_LLVM_IR)
+  PCL_ADD_TEST_WITH_INSTRUMENTATION(io_octree_compression test_octree_compression
         FILES test_octree_compression.cpp
         LINK_WITH pcl_gtest pcl_common pcl_io pcl_octree
         ARGUMENTS "${PCL_SOURCE_DIR}/test/milk_color.pcd")
+else()
+  PCL_ADD_TEST(io_octree_compression test_octree_compression
+        FILES test_octree_compression.cpp
+        LINK_WITH pcl_gtest pcl_common pcl_io pcl_octree
+        ARGUMENTS "${PCL_SOURCE_DIR}/test/milk_color.pcd")
+endif()
 
-PCL_ADD_TEST (io_tim_grabber test_tim_grabber
+if(PCL_ENABLE_LLVM_IR)
+  PCL_ADD_TEST_WITH_INSTRUMENTATION (io_tim_grabber test_tim_grabber
               FILES test_tim_grabber.cpp
               LINK_WITH pcl_gtest pcl_io
               ARGUMENTS "${PCL_SOURCE_DIR}/test/io/tim_sequences")
+else()
+  PCL_ADD_TEST (io_tim_grabber test_tim_grabber
+              FILES test_tim_grabber.cpp
+              LINK_WITH pcl_gtest pcl_io
+              ARGUMENTS "${PCL_SOURCE_DIR}/test/io/tim_sequences")
+endif()

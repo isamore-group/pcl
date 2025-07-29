@@ -10,21 +10,48 @@ if(NOT build)
   return()
 endif()
 
-PCL_ADD_TEST(random_walker test_random_walker
+if(PCL_ENABLE_LLVM_IR)
+  PCL_ADD_TEST_WITH_INSTRUMENTATION(random_walker test_random_walker
              FILES test_random_walker.cpp
              LINK_WITH pcl_gtest pcl_segmentation
              ARGUMENTS "${PCL_SOURCE_DIR}/test/segmentation/data")
+else()
+  PCL_ADD_TEST(random_walker test_random_walker
+             FILES test_random_walker.cpp
+             LINK_WITH pcl_gtest pcl_segmentation
+             ARGUMENTS "${PCL_SOURCE_DIR}/test/segmentation/data")
+endif()
 
-PCL_ADD_TEST(a_segmentation_test test_segmentation
+if(PCL_ENABLE_LLVM_IR)
+  PCL_ADD_TEST_WITH_INSTRUMENTATION(a_segmentation_test test_segmentation
              FILES test_segmentation.cpp
              LINK_WITH pcl_gtest pcl_io pcl_segmentation pcl_features pcl_kdtree pcl_search pcl_common
              ARGUMENTS "${PCL_SOURCE_DIR}/test/bun0.pcd" "${PCL_SOURCE_DIR}/test/car6.pcd" "${PCL_SOURCE_DIR}/test/colored_cloud.pcd")
+else()
+  PCL_ADD_TEST(a_segmentation_test test_segmentation
+             FILES test_segmentation.cpp
+             LINK_WITH pcl_gtest pcl_io pcl_segmentation pcl_features pcl_kdtree pcl_search pcl_common
+             ARGUMENTS "${PCL_SOURCE_DIR}/test/bun0.pcd" "${PCL_SOURCE_DIR}/test/car6.pcd" "${PCL_SOURCE_DIR}/test/colored_cloud.pcd")
+endif()
 
-PCL_ADD_TEST(a_prism_test test_concave_prism
+if(PCL_ENABLE_LLVM_IR)
+  PCL_ADD_TEST_WITH_INSTRUMENTATION(a_prism_test test_concave_prism
              FILES test_concave_prism.cpp
              LINK_WITH pcl_gtest pcl_segmentation pcl_common)
+else()
+  PCL_ADD_TEST(a_prism_test test_concave_prism
+             FILES test_concave_prism.cpp
+             LINK_WITH pcl_gtest pcl_segmentation pcl_common)
+endif()
 
-PCL_ADD_TEST(test_non_linear test_non_linear
+if(PCL_ENABLE_LLVM_IR)
+  PCL_ADD_TEST_WITH_INSTRUMENTATION(test_non_linear test_non_linear
              FILES test_non_linear.cpp
              LINK_WITH pcl_gtest pcl_common pcl_io pcl_sample_consensus pcl_segmentation pcl_kdtree pcl_search
              ARGUMENTS "${PCL_SOURCE_DIR}/test/noisy_slice_displaced.pcd")
+else()
+  PCL_ADD_TEST(test_non_linear test_non_linear
+             FILES test_non_linear.cpp
+             LINK_WITH pcl_gtest pcl_common pcl_io pcl_sample_consensus pcl_segmentation pcl_kdtree pcl_search
+             ARGUMENTS "${PCL_SOURCE_DIR}/test/noisy_slice_displaced.pcd")
+endif()

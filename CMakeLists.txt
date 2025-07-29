@@ -476,6 +476,138 @@ foreach(subdir ${PCL_MODULES_DIRS})
   add_subdirectory("${PCL_SOURCE_DIR}/${subdir}")
 endforeach()
 
+### ---[ ISAMORE Integration - LLVM IR Generation and Instrumentation
+option(PCL_ENABLE_LLVM_IR "Enable LLVM IR generation for ISAMORE instrumentation" OFF)
+
+if(PCL_ENABLE_LLVM_IR)
+  # Hardcoded paths for ISAMORE tools
+  set(PASS_PATH "/home/uvxiao/profiler/build/lib/libbb_instrument.so")
+  set(LLVM_DIR "/home/uvxiao/repos/jlm/build-llvm-mlir")
+  
+  # Check if paths exist
+  if(NOT EXISTS "${PASS_PATH}")
+    message(WARNING "PASS_PATH does not exist: ${PASS_PATH}")
+    set(PCL_ENABLE_LLVM_IR OFF)
+  elseif(NOT EXISTS "${LLVM_DIR}")
+    message(WARNING "LLVM_DIR does not exist: ${LLVM_DIR}")
+    set(PCL_ENABLE_LLVM_IR OFF)
+  else()
+    set(LLVM_LINK "${LLVM_DIR}/bin/llvm-link")
+    set(OPT "${LLVM_DIR}/bin/opt")
+    set(CLANG "${LLVM_DIR}/bin/clang++")
+    
+    message(STATUS "ISAMORE LLVM IR generation enabled")
+    message(STATUS "PASS_PATH: ${PASS_PATH}")
+    message(STATUS "LLVM_LINK: ${LLVM_LINK}")
+    message(STATUS "OPT: ${OPT}")
+    message(STATUS "CLANG: ${CLANG}")
+    
+    # Create LLVM output directory
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/llvm")
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/__binary")
+    
+    # Create a helper script for compiling PCL modules to LLVM IR
+    file(WRITE ${CMAKE_BINARY_DIR}/compile_pcl_to_ll.sh "#!/bin/bash
+# Usage: compile_pcl_to_ll.sh <source_file> <output_file> <include_dirs> <definitions>
+SOURCE_FILE=\"\$1\"
+OUTPUT_FILE=\"\$2\"
+INCLUDE_DIRS=\"\$3\"
+DEFINITIONS=\"\$4\"
+
+# Compile to LLVM IR
+${CLANG} -S -emit-llvm -std=c++14 -fPIC -O3 -fno-vectorize -fno-slp-vectorize -ffp-contract=off \
+  \$INCLUDE_DIRS \$DEFINITIONS \
+  -c \"\$SOURCE_FILE\" -o \"\$OUTPUT_FILE\" 2>/dev/null || touch \"\$OUTPUT_FILE\"
+")
+    
+    # Make the script executable
+    execute_process(COMMAND chmod +x ${CMAKE_BINARY_DIR}/compile_pcl_to_ll.sh)
+    
+    # Function to generate LLVM IR for a PCL module
+    function(PCL_GENERATE_LLVM_IR module_name)
+      set(module_dir "${CMAKE_BINARY_DIR}/llvm/${module_name}_ll")
+      file(MAKE_DIRECTORY ${module_dir})
+      
+      # Get the source directory for the module
+      if(EXISTS "${PCL_SOURCE_DIR}/${module_name}/src")
+        set(src_dir "${PCL_SOURCE_DIR}/${module_name}/src")
+      else()
+        return()
+      endif()
+      
+      # Get all source files
+      file(GLOB_RECURSE sources "${src_dir}/*.cpp" "${src_dir}/*.cc")
+      
+      # Create custom commands for each source file
+      foreach(source ${sources})
+        get_filename_component(source_name ${source} NAME_WE)
+        set(ll_file "${module_dir}/${source_name}.ll")
+        
+        # Get include directories
+        set(include_dirs "-I${PCL_SOURCE_DIR}/${module_name}/include -I${PCL_SOURCE_DIR}/common/include")
+        foreach(inc ${PCL_INCLUDE_DIRS})
+          set(include_dirs "${include_dirs} -I${inc}")
+        endforeach()
+        
+        # Add definitions
+        set(definitions "-DPCL_NO_PRECOMPILE")
+        
+        add_custom_command(
+          OUTPUT ${ll_file}
+          COMMAND ${CMAKE_BINARY_DIR}/compile_pcl_to_ll.sh
+                  ${source}
+                  ${ll_file}
+                  "${include_dirs}"
+                  "${definitions}"
+          DEPENDS ${source} ${CMAKE_BINARY_DIR}/compile_pcl_to_ll.sh
+          COMMENT "Generating LLVM IR for ${source_name}"
+        )
+        
+        list(APPEND ll_files ${ll_file})
+      endforeach()
+      
+      if(ll_files)
+        # Link all .ll files into a single .bc file
+        add_custom_command(
+          OUTPUT ${CMAKE_BINARY_DIR}/llvm/${module_name}.bc
+          COMMAND ${LLVM_LINK} ${ll_files} -o ${CMAKE_BINARY_DIR}/llvm/${module_name}.bc 2>/dev/null || touch ${CMAKE_BINARY_DIR}/llvm/${module_name}.bc
+          DEPENDS ${ll_files}
+          COMMENT "Linking LLVM IR for ${module_name}"
+        )
+        
+        # Instrument the module
+        add_custom_command(
+          OUTPUT ${CMAKE_BINARY_DIR}/llvm/${module_name}_instrumented.bc
+          COMMAND ${OPT} -load-pass-plugin="${PASS_PATH}" -passes=bb_instrument
+                  ${CMAKE_BINARY_DIR}/llvm/${module_name}.bc
+                  -o ${CMAKE_BINARY_DIR}/llvm/${module_name}_instrumented.bc 2>/dev/null || touch ${CMAKE_BINARY_DIR}/llvm/${module_name}_instrumented.bc
+          DEPENDS ${CMAKE_BINARY_DIR}/llvm/${module_name}.bc
+          COMMENT "Instrumenting LLVM IR for ${module_name}"
+        )
+        
+        # Create custom target
+        add_custom_target(pcl_${module_name}_llvm_ir ALL
+          DEPENDS ${CMAKE_BINARY_DIR}/llvm/${module_name}.bc
+                  ${CMAKE_BINARY_DIR}/llvm/${module_name}_instrumented.bc
+        )
+      endif()
+    endfunction()
+    
+    # Generate LLVM IR for all PCL modules
+    foreach(module ${PCL_MODULES_NAMES})
+      PCL_GENERATE_LLVM_IR(${module})
+    endforeach()
+    
+    # Add a target to build all LLVM IR
+    add_custom_target(pcl_llvm_ir)
+    foreach(module ${PCL_MODULES_NAMES})
+      if(TARGET pcl_${module}_llvm_ir)
+        add_dependencies(pcl_llvm_ir pcl_${module}_llvm_ir)
+      endif()
+    endforeach()
+  endif()
+endif()
+
 ### ---[ Documentation
 add_subdirectory(doc)
 

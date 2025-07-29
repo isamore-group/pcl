@@ -10,7 +10,14 @@ if(NOT build)
   return()
 endif()
 
-PCL_ADD_TEST(a_people_detection_test test_people_detection
+if(PCL_ENABLE_LLVM_IR)
+  PCL_ADD_TEST_WITH_INSTRUMENTATION(a_people_detection_test test_people_detection
              FILES test_people_groundBasedPeopleDetectionApp.cpp
              LINK_WITH pcl_gtest pcl_common pcl_io pcl_kdtree pcl_search pcl_features pcl_sample_consensus pcl_filters pcl_segmentation pcl_people
              ARGUMENTS "${PCL_SOURCE_DIR}/people/data/trainedLinearSVMForPeopleDetectionWithHOG.yaml" "${PCL_SOURCE_DIR}/test/five_people.pcd")
+else()
+  PCL_ADD_TEST(a_people_detection_test test_people_detection
+             FILES test_people_groundBasedPeopleDetectionApp.cpp
+             LINK_WITH pcl_gtest pcl_common pcl_io pcl_kdtree pcl_search pcl_features pcl_sample_consensus pcl_filters pcl_segmentation pcl_people
+             ARGUMENTS "${PCL_SOURCE_DIR}/people/data/trainedLinearSVMForPeopleDetectionWithHOG.yaml" "${PCL_SOURCE_DIR}/test/five_people.pcd")
+endif()

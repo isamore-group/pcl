@@ -408,3 +408,133 @@ endif()
 add_custom_target(${SUBSYS_TARGET_NAME} DEPENDS ${PCL_TOOLS_ALL_TARGETS})
 set_target_properties(${SUBSYS_TARGET_NAME} PROPERTIES FOLDER "Tools")
 
+# ISAMORE LLVM IR generation for tools - DISABLED
+# Tools use complex C++ that doesn't compile well to LLVM IR
+# Focus on tests and examples instead
+if(FALSE AND PCL_ENABLE_LLVM_IR)
+  # Set LLVM tool paths
+  set(LLVM_LINK "/home/uvxiao/repos/jlm/build-llvm-mlir/bin/llvm-link")
+  set(OPT "/home/uvxiao/repos/jlm/build-llvm-mlir/bin/opt")
+  set(CLANG "/home/uvxiao/repos/jlm/build-llvm-mlir/bin/clang++")
+  set(PASS_PATH "/home/uvxiao/profiler/build/lib/libbb_instrument.so")
+  
+  # Function to add LLVM IR generation for a tool
+  function(PCL_ADD_TOOL_LLVM_IR name libs)
+    set(tool_src "${CMAKE_CURRENT_SOURCE_DIR}/${name}.cpp")
+    if(NOT EXISTS ${tool_src})
+      # Try without pcl_ prefix
+      string(REPLACE "pcl_" "" base_name ${name})
+      set(tool_src "${CMAKE_CURRENT_SOURCE_DIR}/${base_name}.cpp")
+      if(NOT EXISTS ${tool_src})
+        return()
+      endif()
+    endif()
+    
+    # Create LLVM directory for tools
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/tools/llvm")
+    
+    # Get include directories
+    set(include_dirs "")
+    # Add PCL includes
+    set(include_dirs "${include_dirs} -I${PCL_SOURCE_DIR}/common/include")
+    foreach(module ${PCL_MODULES_NAMES})
+      if(EXISTS "${PCL_SOURCE_DIR}/${module}/include")
+        set(include_dirs "${include_dirs} -I${PCL_SOURCE_DIR}/${module}/include")
+      endif()
+    endforeach()
+    # Add system includes
+    foreach(inc ${PCL_INCLUDE_DIRS})
+      set(include_dirs "${include_dirs} -I${inc}")
+    endforeach()
+    
+    # Add definitions
+    set(definitions "-DPCL_NO_PRECOMPILE")
+    
+    # Generate LLVM IR
+    add_custom_command(
+      OUTPUT ${CMAKE_BINARY_DIR}/tools/llvm/${name}.ll
+      COMMAND ${CMAKE_BINARY_DIR}/compile_pcl_to_ll.sh
+              ${tool_src}
+              ${CMAKE_BINARY_DIR}/tools/llvm/${name}.ll
+              "${include_dirs}"
+              "${definitions}"
+      DEPENDS ${tool_src} ${CMAKE_BINARY_DIR}/compile_pcl_to_ll.sh
+      COMMENT "Generating LLVM IR for tool ${name}"
+    )
+    
+    # Instrument the tool
+    add_custom_command(
+      OUTPUT ${CMAKE_BINARY_DIR}/tools/llvm/${name}_instrumented.ll
+      COMMAND ${OPT} -load-pass-plugin="${PASS_PATH}" -passes=bb_instrument
+              ${CMAKE_BINARY_DIR}/tools/llvm/${name}.ll
+              -o ${CMAKE_BINARY_DIR}/tools/llvm/${name}_instrumented.ll 2>/dev/null || touch ${CMAKE_BINARY_DIR}/tools/llvm/${name}_instrumented.ll
+      DEPENDS ${CMAKE_BINARY_DIR}/tools/llvm/${name}.ll
+      COMMENT "Instrumenting LLVM IR for tool ${name}"
+    )
+    
+    # Get module bitcode files for linked libraries
+    set(module_bcs "")
+    foreach(lib ${libs})
+      if(lib MATCHES "^pcl_")
+        string(REPLACE "pcl_" "" module ${lib})
+        if(EXISTS "${CMAKE_BINARY_DIR}/llvm/${module}_instrumented.bc")
+          list(APPEND module_bcs "${CMAKE_BINARY_DIR}/llvm/${module}_instrumented.bc")
+        endif()
+      endif()
+    endforeach()
+    
+    # Link with PCL modules and create instrumented executable
+    if(module_bcs)
+      add_custom_command(
+        OUTPUT ${CMAKE_BINARY_DIR}/tools/${name}_instrumented
+        COMMAND ${LLVM_LINK} ${CMAKE_BINARY_DIR}/tools/llvm/${name}_instrumented.ll ${module_bcs}
+                -o ${CMAKE_BINARY_DIR}/tools/llvm/${name}_linked.bc
+        COMMAND ${CLANG} ${CMAKE_BINARY_DIR}/tools/llvm/${name}_linked.bc
+                -o ${CMAKE_BINARY_DIR}/tools/${name}_instrumented
+                -lm -lpthread 
+                -L$ENV{HOME}/.local/lib -Wl,-rpath,$ENV{HOME}/.local/lib
+                -L${CMAKE_BINARY_DIR}/lib -Wl,-rpath,${CMAKE_BINARY_DIR}/lib
+                -L${CMAKE_SOURCE_DIR}/3rdParty/Flann/install/lib -Wl,-rpath,${CMAKE_SOURCE_DIR}/3rdParty/Flann/install/lib
+                -lboost_system -lboost_filesystem -lboost_thread -lboost_date_time 
+                -lboost_iostreams -lboost_chrono -lboost_atomic -lboost_regex
+                -lpcl_common -lpcl_io -lflann_cpp
+                -lstdc++ -lz
+        DEPENDS ${CMAKE_BINARY_DIR}/tools/llvm/${name}_instrumented.ll ${module_bcs}
+        COMMENT "Building instrumented executable: ${name}_instrumented"
+      )
+      
+      # Copy to __binary for profiling
+      add_custom_command(
+        OUTPUT ${CMAKE_BINARY_DIR}/__binary/${name}_instrumented
+        COMMAND ${CMAKE_COMMAND} -E copy
+                ${CMAKE_BINARY_DIR}/tools/${name}_instrumented
+                ${CMAKE_BINARY_DIR}/__binary/${name}_instrumented
+        DEPENDS ${CMAKE_BINARY_DIR}/tools/${name}_instrumented
+        COMMENT "Copying instrumented tool to __binary"
+      )
+      
+      add_custom_target(${name}_instrumented_exe ALL
+        DEPENDS ${CMAKE_BINARY_DIR}/__binary/${name}_instrumented
+      )
+    endif()
+  endfunction()
+  
+  # Generate LLVM IR for all tools in this file
+  # Parse the CMakeLists.txt to find all PCL_ADD_EXECUTABLE calls
+  file(READ ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt TOOLS_CMAKE_CONTENT)
+  string(REGEX MATCHALL "PCL_ADD_EXECUTABLE\\(([^ ]+)[^)]+\\)\n[^t]*target_link_libraries[^(]*\\(([^)]+)\\)" TOOL_MATCHES "${TOOLS_CMAKE_CONTENT}")
+  
+  # Process each match
+  foreach(match ${TOOL_MATCHES})
+    string(REGEX MATCH "PCL_ADD_EXECUTABLE\\(([^ ]+)" _ ${match})
+    set(tool_name ${CMAKE_MATCH_1})
+    string(REGEX MATCH "target_link_libraries[^(]*\\(([^)]+)\\)" _ ${match})
+    string(REPLACE " " ";" libs ${CMAKE_MATCH_1})
+    list(REMOVE_AT libs 0)  # Remove tool name from list
+    
+    if(tool_name AND libs)
+      PCL_ADD_TOOL_LLVM_IR(${tool_name} "${libs}")
+    endif()
+  endforeach()
+endif()
+

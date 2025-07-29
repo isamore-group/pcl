@@ -9,7 +9,8 @@ if(NOT build)
   return()
 endif()
 
-PCL_ADD_TEST(test_2d test_2d FILES test_2d.cpp
+if(PCL_ENABLE_LLVM_IR)
+  PCL_ADD_TEST_WITH_INSTRUMENTATION(test_2d test_2d FILES test_2d.cpp
              LINK_WITH pcl_2d pcl_io pcl_gtest
              ARGUMENTS "${PCL_SOURCE_DIR}/test/2d/lena.pcd"
                        "${PCL_SOURCE_DIR}/test/2d/gauss_smooth.pcd"
@@ -22,8 +23,31 @@ PCL_ADD_TEST(test_2d test_2d FILES test_2d.cpp
                        "${PCL_SOURCE_DIR}/test/2d/opening_binary.pcd"
                        "${PCL_SOURCE_DIR}/test/2d/closing_binary.pcd"
                        "${PCL_SOURCE_DIR}/test/2d/canny.pcd")
+else()
+  PCL_ADD_TEST(test_2d test_2d FILES test_2d.cpp
+             LINK_WITH pcl_2d pcl_io pcl_gtest
+             ARGUMENTS "${PCL_SOURCE_DIR}/test/2d/lena.pcd"
+                       "${PCL_SOURCE_DIR}/test/2d/gauss_smooth.pcd"
+                       "${PCL_SOURCE_DIR}/test/2d/erosion.pcd"
+                       "${PCL_SOURCE_DIR}/test/2d/dilation.pcd"
+                       "${PCL_SOURCE_DIR}/test/2d/opening.pcd"
+                       "${PCL_SOURCE_DIR}/test/2d/closing.pcd"
+                       "${PCL_SOURCE_DIR}/test/2d/erosion_binary.pcd"
+                       "${PCL_SOURCE_DIR}/test/2d/dilation_binary.pcd"
+                       "${PCL_SOURCE_DIR}/test/2d/opening_binary.pcd"
+                       "${PCL_SOURCE_DIR}/test/2d/closing_binary.pcd"
+                       "${PCL_SOURCE_DIR}/test/2d/canny.pcd")
+endif()
 
-PCL_ADD_TEST(test_2d_keypoint_instantiation_with_precompile test_2d_keypoint_instantiation_with_precompile FILES keypoint_instantiation.cpp LINK_WITH pcl_2d pcl_gtest pcl_common)
+if(PCL_ENABLE_LLVM_IR)
+  PCL_ADD_TEST_WITH_INSTRUMENTATION(test_2d_keypoint_instantiation_with_precompile test_2d_keypoint_instantiation_with_precompile FILES keypoint_instantiation.cpp LINK_WITH pcl_2d pcl_gtest pcl_common)
+else()
+  PCL_ADD_TEST(test_2d_keypoint_instantiation_with_precompile test_2d_keypoint_instantiation_with_precompile FILES keypoint_instantiation.cpp LINK_WITH pcl_2d pcl_gtest pcl_common)
+endif()
 
-PCL_ADD_TEST(test_2d_keypoint_instantiation_without_precompile test_2d_keypoint_instantiation_without_precompile FILES keypoint_instantiation.cpp LINK_WITH pcl_2d pcl_gtest pcl_common)
+if(PCL_ENABLE_LLVM_IR)
+  PCL_ADD_TEST_WITH_INSTRUMENTATION(test_2d_keypoint_instantiation_without_precompile test_2d_keypoint_instantiation_without_precompile FILES keypoint_instantiation.cpp LINK_WITH pcl_2d pcl_gtest pcl_common)
+else()
+  PCL_ADD_TEST(test_2d_keypoint_instantiation_without_precompile test_2d_keypoint_instantiation_without_precompile FILES keypoint_instantiation.cpp LINK_WITH pcl_2d pcl_gtest pcl_common)
+endif()
 target_compile_definitions(test_2d_keypoint_instantiation_without_precompile PUBLIC PCL_NO_PRECOMPILE)

@@ -13,26 +13,26 @@ else()
   set(REASON)
 endif()
 
-PCL_ADD_EXAMPLE(pcl_test_nurbs_fitting_surface
+PCL_ADD_EXAMPLE_WITH_INSTRUMENTATION(pcl_test_nurbs_fitting_surface
                 FILES test_nurbs_fitting_surface.cpp
                 LINK_WITH pcl_common pcl_io pcl_surface pcl_visualization)
 
-PCL_ADD_EXAMPLE(pcl_example_nurbs_fitting_surface
+PCL_ADD_EXAMPLE_WITH_INSTRUMENTATION(pcl_example_nurbs_fitting_surface
                 FILES example_nurbs_fitting_surface.cpp
                 LINK_WITH pcl_common pcl_io pcl_surface pcl_visualization)
 
-PCL_ADD_EXAMPLE(pcl_example_nurbs_viewer_surface
+PCL_ADD_EXAMPLE_WITH_INSTRUMENTATION(pcl_example_nurbs_viewer_surface
                 FILES example_nurbs_viewer_surface.cpp
                 LINK_WITH pcl_common pcl_io pcl_surface pcl_visualization)
 
-PCL_ADD_EXAMPLE(pcl_example_nurbs_fitting_closed_curve
+PCL_ADD_EXAMPLE_WITH_INSTRUMENTATION(pcl_example_nurbs_fitting_closed_curve
                 FILES example_nurbs_fitting_closed_curve.cpp
                 LINK_WITH pcl_common pcl_io pcl_surface pcl_visualization)
 
-PCL_ADD_EXAMPLE(pcl_example_nurbs_fitting_curve2d
+PCL_ADD_EXAMPLE_WITH_INSTRUMENTATION(pcl_example_nurbs_fitting_curve2d
                 FILES example_nurbs_fitting_curve2d.cpp
                 LINK_WITH pcl_common pcl_io pcl_surface pcl_visualization)
 
-PCL_ADD_EXAMPLE(pcl_example_nurbs_fitting_closed_curve3d
+PCL_ADD_EXAMPLE_WITH_INSTRUMENTATION(pcl_example_nurbs_fitting_closed_curve3d
                 FILES example_nurbs_fitting_closed_curve3d.cpp
                 LINK_WITH pcl_common pcl_io pcl_surface pcl_visualization)

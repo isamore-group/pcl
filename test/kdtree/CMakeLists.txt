@@ -10,7 +10,14 @@ if(NOT (build AND BUILD_io))
   return()
 endif()
 
-PCL_ADD_TEST (kdtree_kdtree test_kdtree
+if(PCL_ENABLE_LLVM_IR)
+  PCL_ADD_TEST_WITH_INSTRUMENTATION (kdtree_kdtree test_kdtree
               FILES test_kdtree.cpp
               LINK_WITH pcl_gtest pcl_kdtree pcl_io pcl_common
               ARGUMENTS "${PCL_SOURCE_DIR}/test/sac_plane_test.pcd" "${PCL_SOURCE_DIR}/test/kdtree/kdtree_unit_test_results.xml")
+else()
+  PCL_ADD_TEST (kdtree_kdtree test_kdtree
+              FILES test_kdtree.cpp
+              LINK_WITH pcl_gtest pcl_kdtree pcl_io pcl_common
+              ARGUMENTS "${PCL_SOURCE_DIR}/test/sac_plane_test.pcd" "${PCL_SOURCE_DIR}/test/kdtree/kdtree_unit_test_results.xml")
+endif()

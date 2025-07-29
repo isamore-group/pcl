@@ -10,21 +10,46 @@ if(NOT build)
   return()
 endif()
 
-PCL_ADD_TEST(sample_consensus test_sample_consensus
+if(PCL_ENABLE_LLVM_IR)
+  PCL_ADD_TEST_WITH_INSTRUMENTATION(sample_consensus test_sample_consensus
              FILES test_sample_consensus.cpp
              LINK_WITH pcl_gtest pcl_sample_consensus pcl_search pcl_common)
+else()
+  PCL_ADD_TEST(sample_consensus test_sample_consensus
+             FILES test_sample_consensus.cpp
+             LINK_WITH pcl_gtest pcl_sample_consensus pcl_search pcl_common)
+endif()
 
 if(BUILD_io)
-  PCL_ADD_TEST(sample_consensus_plane_models test_sample_consensus_plane_models
+    if(PCL_ENABLE_LLVM_IR)
+    PCL_ADD_TEST_WITH_INSTRUMENTATION(sample_consensus_plane_models test_sample_consensus_plane_models
                FILES test_sample_consensus_plane_models.cpp
                LINK_WITH pcl_gtest pcl_io pcl_sample_consensus
                ARGUMENTS "${PCL_SOURCE_DIR}/test/sac_plane_test.pcd")
+  else()
+    PCL_ADD_TEST(sample_consensus_plane_models test_sample_consensus_plane_models
+               FILES test_sample_consensus_plane_models.cpp
+               LINK_WITH pcl_gtest pcl_io pcl_sample_consensus
+               ARGUMENTS "${PCL_SOURCE_DIR}/test/sac_plane_test.pcd")
+  endif()
 endif()
 
-PCL_ADD_TEST(sample_consensus_quadric_models test_sample_consensus_quadric_models
+if(PCL_ENABLE_LLVM_IR)
+  PCL_ADD_TEST_WITH_INSTRUMENTATION(sample_consensus_quadric_models test_sample_consensus_quadric_models
              FILES test_sample_consensus_quadric_models.cpp
              LINK_WITH pcl_gtest pcl_sample_consensus)
+else()
+  PCL_ADD_TEST(sample_consensus_quadric_models test_sample_consensus_quadric_models
+             FILES test_sample_consensus_quadric_models.cpp
+             LINK_WITH pcl_gtest pcl_sample_consensus)
+endif()
 
-PCL_ADD_TEST(sample_consensus_line_models test_sample_consensus_line_models
+if(PCL_ENABLE_LLVM_IR)
+  PCL_ADD_TEST_WITH_INSTRUMENTATION(sample_consensus_line_models test_sample_consensus_line_models
              FILES test_sample_consensus_line_models.cpp
              LINK_WITH pcl_gtest pcl_sample_consensus)
+else()
+  PCL_ADD_TEST(sample_consensus_line_models test_sample_consensus_line_models
+             FILES test_sample_consensus_line_models.cpp
+             LINK_WITH pcl_gtest pcl_sample_consensus)
+endif()

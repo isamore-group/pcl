@@ -10,6 +10,12 @@ if(NOT build)
   return()
 endif()
 
-PCL_ADD_TEST (outofcore_test test_outofcore
+if(PCL_ENABLE_LLVM_IR)
+  PCL_ADD_TEST_WITH_INSTRUMENTATION (outofcore_test test_outofcore
               FILES test_outofcore.cpp
               LINK_WITH pcl_gtest pcl_common pcl_io pcl_filters pcl_outofcore pcl_visualization)
+else()
+  PCL_ADD_TEST (outofcore_test test_outofcore
+              FILES test_outofcore.cpp
+              LINK_WITH pcl_gtest pcl_common pcl_io pcl_filters pcl_outofcore pcl_visualization)
+endif()

@@ -481,6 +481,11 @@ function(PCL_ADD_BENCHMARK _name)
   set_target_properties(run_benchmark_${_name} PROPERTIES FOLDER "Benchmarks")
 
   add_dependencies(run_benchmarks run_benchmark_${_name})
+  
+  # Generate LLVM IR if ISAMORE is enabled
+  if(PCL_ENABLE_LLVM_IR AND COMMAND PCL_ADD_BENCHMARK_LLVM_IR)
+    PCL_ADD_BENCHMARK_LLVM_IR(benchmark_${_name})
+  endif()
 endfunction()
 
 ###############################################################################
@@ -510,6 +515,11 @@ macro(PCL_ADD_EXAMPLE _name)
   # add target to list of example targets created at the parent scope
   list(APPEND PCL_EXAMPLES_ALL_TARGETS ${_name})
   set(PCL_EXAMPLES_ALL_TARGETS "${PCL_EXAMPLES_ALL_TARGETS}" PARENT_SCOPE)
+  
+  # Generate LLVM IR if ISAMORE is enabled
+  if(PCL_ENABLE_LLVM_IR AND COMMAND PCL_ADD_EXAMPLE_LLVM_IR)
+    PCL_ADD_EXAMPLE_LLVM_IR(${_name})
+  endif()
 endmacro()
 
 ###############################################################################

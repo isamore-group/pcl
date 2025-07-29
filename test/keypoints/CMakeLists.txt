@@ -10,12 +10,26 @@ if(NOT (build AND BUILD_io))
   return()
 endif()
 
-PCL_ADD_TEST(keypoints_general test_keypoints
+if(PCL_ENABLE_LLVM_IR)
+  PCL_ADD_TEST_WITH_INSTRUMENTATION(keypoints_general test_keypoints
              FILES test_keypoints.cpp
              LINK_WITH pcl_gtest pcl_io pcl_kdtree pcl_filters pcl_keypoints
              ARGUMENTS "${PCL_SOURCE_DIR}/test/cturtle.pcd")
+else()
+  PCL_ADD_TEST(keypoints_general test_keypoints
+             FILES test_keypoints.cpp
+             LINK_WITH pcl_gtest pcl_io pcl_kdtree pcl_filters pcl_keypoints
+             ARGUMENTS "${PCL_SOURCE_DIR}/test/cturtle.pcd")
+endif()
 
-PCL_ADD_TEST(keypoints_iss_3d test_iss_3d
+if(PCL_ENABLE_LLVM_IR)
+  PCL_ADD_TEST_WITH_INSTRUMENTATION(keypoints_iss_3d test_iss_3d
              FILES test_iss_3d.cpp
              LINK_WITH pcl_gtest pcl_keypoints pcl_io
              ARGUMENTS "${PCL_SOURCE_DIR}/test/bun0.pcd")
+else()
+  PCL_ADD_TEST(keypoints_iss_3d test_iss_3d
+             FILES test_iss_3d.cpp
+             LINK_WITH pcl_gtest pcl_keypoints pcl_io
+             ARGUMENTS "${PCL_SOURCE_DIR}/test/bun0.pcd")
+endif()
