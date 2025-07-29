@@ -1,0 +1,3 @@
+[submodule "3rdParty/Flann"]
+	path = 3rdParty/Flann
+	url = git@github.com:isamore-group/flann.git
