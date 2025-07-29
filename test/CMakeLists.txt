@@ -88,35 +88,50 @@ if(PCL_ENABLE_LLVM_IR)
       # Make output file unique by including the test name to avoid conflicts
       set(bc_file "${llvm_dir}/${test_name}_${source_name}.bc")
       
-      # Build include directories string
-      set(include_flags "")
+      # Build include directories string as a list first
+      set(include_dirs_list "")
       # Add PCL module includes
       foreach(module common io filters features kdtree octree search sample_consensus surface registration recognition segmentation ml geometry keypoints)
         if(EXISTS "${PCL_SOURCE_DIR}/${module}/include")
-          set(include_flags "${include_flags} -I${PCL_SOURCE_DIR}/${module}/include")
+          list(APPEND include_dirs_list "-I${PCL_SOURCE_DIR}/${module}/include")
         endif()
       endforeach()
       # Add other necessary includes
-      set(include_flags "${include_flags} -I${CMAKE_CURRENT_SOURCE_DIR}/include")
-      set(include_flags "${include_flags} -I${GTEST_INCLUDE_DIRS}")
-      if(EIGEN3_INCLUDE_DIRS)
-        set(include_flags "${include_flags} -I${EIGEN3_INCLUDE_DIRS}")
-      endif()
+      list(APPEND include_dirs_list "-I${CMAKE_BINARY_DIR}/include")
+      list(APPEND include_dirs_list "-I${CMAKE_CURRENT_SOURCE_DIR}/include")
+      list(APPEND include_dirs_list "-I${PCL_SOURCE_DIR}/test/include")
+      list(APPEND include_dirs_list "-I${GTEST_INCLUDE_DIRS}")
+      # Add Eigen3 include directory
+      list(APPEND include_dirs_list "-I/usr/include/eigen3")
       if(Boost_INCLUDE_DIRS)
-        set(include_flags "${include_flags} -I${Boost_INCLUDE_DIRS}")
+        list(APPEND include_dirs_list "-I${Boost_INCLUDE_DIRS}")
       endif()
       if(FLANN_INCLUDE_DIRS)
-        set(include_flags "${include_flags} -I${FLANN_INCLUDE_DIRS}")
+        list(APPEND include_dirs_list "-I${FLANN_INCLUDE_DIRS}")
       endif()
+      
+      # Convert list to space-separated string without escaping
+      set(include_flags "")
+      foreach(inc_dir ${include_dirs_list})
+        set(include_flags "${include_flags} ${inc_dir}")
+      endforeach()
+      string(STRIP "${include_flags}" include_flags)
       
       # Get compile definitions from original target
       get_target_property(comp_defs ${test_name} COMPILE_DEFINITIONS)
-      set(definition_flags "")
+      set(definition_flags_list "")
       if(comp_defs)
         foreach(def ${comp_defs})
-          set(definition_flags "${definition_flags} -D${def}")
+          list(APPEND definition_flags_list "-D${def}")
         endforeach()
       endif()
+      
+      # Convert list to space-separated string without escaping
+      set(definition_flags "")
+      foreach(def_flag ${definition_flags_list})
+        set(definition_flags "${definition_flags} ${def_flag}")
+      endforeach()
+      string(STRIP "${definition_flags}" definition_flags)
       
       # Custom command to compile to bitcode
       add_custom_command(
@@ -124,8 +139,8 @@ if(PCL_ENABLE_LLVM_IR)
         COMMAND ${CLANG} 
           -c -emit-llvm 
           -std=c++17 -O2 -fPIC
-          ${include_flags}
-          ${definition_flags}
+          ${include_dirs_list}
+          ${definition_flags_list}
           -o ${bc_file}
           ${source_abs}
         DEPENDS ${source}
@@ -197,13 +212,34 @@ if(PCL_ENABLE_LLVM_IR)
           if(target_type STREQUAL "INTERFACE_LIBRARY")
             # Skip interface libraries
           else()
-            # It's a regular library target
-            list(APPEND link_libs_expanded "$<TARGET_FILE:${lib}>")
+            # It's a regular library target - use library name
+            if(lib MATCHES "^pcl_")
+              list(APPEND link_libs_expanded "-l${lib}")
+            else()
+              list(APPEND link_libs_expanded "${lib}")
+            endif()
           endif()
         endif()
       else()
         # It's a library name or flag
-        list(APPEND link_libs_expanded "${lib}")
+        if(lib MATCHES "^-")
+          # It's already a flag (like -lpthread)
+          list(APPEND link_libs_expanded "${lib}")
+        elseif(lib MATCHES "^/")
+          # It's a full path
+          list(APPEND link_libs_expanded "${lib}")
+        else()
+          # It's a library name without -l prefix
+          list(APPEND link_libs_expanded "-l${lib}")
+        endif()
+      endif()
+    endforeach()
+    
+    # Filter link_libs to only include actual targets for DEPENDS
+    set(target_depends "")
+    foreach(lib ${link_libs})
+      if(TARGET ${lib})
+        list(APPEND target_depends ${lib})
       endif()
     endforeach()
     
@@ -227,7 +263,7 @@ if(PCL_ENABLE_LLVM_IR)
         /usr/lib/x86_64-linux-gnu/libgtest_main.a
         -lboost_system -lboost_filesystem -lboost_thread -lboost_date_time 
         -lboost_iostreams -lboost_chrono -lboost_atomic -lboost_regex
-      DEPENDS ${instrumented_bc} ${link_libs}
+      DEPENDS ${instrumented_bc} ${target_depends}
       COMMENT "Building instrumented executable ${instrumented_target}"
       COMMAND_EXPAND_LISTS
     )
