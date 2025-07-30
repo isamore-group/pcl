@@ -601,8 +601,8 @@ fi
         endforeach()
         string(STRIP "${include_dirs}" include_dirs)
         
-        # Add definitions
-        set(definitions "-DPCL_NO_PRECOMPILE")
+        # Add definitions (removed PCL_NO_PRECOMPILE to include template instantiations)
+        set(definitions "")
         
         add_custom_command(
           OUTPUT ${ll_file}
