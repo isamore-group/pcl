@@ -10,28 +10,14 @@ if(NOT build)
   return()
 endif()
 
-if(PCL_ENABLE_LLVM_IR)
-  PCL_ADD_TEST_WITH_INSTRUMENTATION(a_recognition_ism_test test_recognition_ism
+PCL_ADD_TEST(a_recognition_ism_test test_recognition_ism
              FILES test_recognition_ism.cpp
              LINK_WITH pcl_gtest pcl_io pcl_features pcl_recognition
              ARGUMENTS "${PCL_SOURCE_DIR}/test/ism_train.pcd" "${PCL_SOURCE_DIR}/test/ism_test.pcd")
-else()
-  PCL_ADD_TEST(a_recognition_ism_test test_recognition_ism
-             FILES test_recognition_ism.cpp
-             LINK_WITH pcl_gtest pcl_io pcl_features pcl_recognition
-             ARGUMENTS "${PCL_SOURCE_DIR}/test/ism_train.pcd" "${PCL_SOURCE_DIR}/test/ism_test.pcd")
-endif()
 
 if(BUILD_keypoints)
-    if(PCL_ENABLE_LLVM_IR)
-    PCL_ADD_TEST_WITH_INSTRUMENTATION(a_recognition_cg_test test_recognition_cg
+  PCL_ADD_TEST(a_recognition_cg_test test_recognition_cg
                FILES test_recognition_cg.cpp
                LINK_WITH pcl_gtest pcl_common pcl_io pcl_kdtree pcl_features pcl_recognition pcl_keypoints
                ARGUMENTS "${PCL_SOURCE_DIR}/test/milk.pcd" "${PCL_SOURCE_DIR}/test/milk_cartoon_all_small_clorox.pcd")
-  else()
-    PCL_ADD_TEST(a_recognition_cg_test test_recognition_cg
-               FILES test_recognition_cg.cpp
-               LINK_WITH pcl_gtest pcl_common pcl_io pcl_kdtree pcl_features pcl_recognition pcl_keypoints
-               ARGUMENTS "${PCL_SOURCE_DIR}/test/milk.pcd" "${PCL_SOURCE_DIR}/test/milk_cartoon_all_small_clorox.pcd")
-  endif()
 endif()

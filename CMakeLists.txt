@@ -514,10 +514,22 @@ OUTPUT_FILE=\"\$2\"
 INCLUDE_DIRS=\"\$3\"
 DEFINITIONS=\"\$4\"
 
+# Create output directory if it doesn't exist
+mkdir -p \"\$(dirname \"\$OUTPUT_FILE\")\"
+
 # Compile to LLVM IR
-${CLANG} -S -emit-llvm -std=c++14 -fPIC -O3 -fno-vectorize -fno-slp-vectorize -ffp-contract=off \
+TEMP_FILE=\"\${OUTPUT_FILE}.tmp\"
+${CLANG} -S -emit-llvm -std=c++17 -fPIC -O3 -fno-vectorize -fno-slp-vectorize -ffp-contract=off \
   \$INCLUDE_DIRS \$DEFINITIONS \
-  -c \"\$SOURCE_FILE\" -o \"\$OUTPUT_FILE\" 2>/dev/null || touch \"\$OUTPUT_FILE\"
+  -c \"\$SOURCE_FILE\" -o \"\$TEMP_FILE\" || touch \"\$TEMP_FILE\"
+
+# Apply lower-invoke pass to remove invoke instructions (required for jlm)
+if [ -s \"\$TEMP_FILE\" ]; then
+  ${OPT} -S -passes=lowerinvoke \"\$TEMP_FILE\" -o \"\$OUTPUT_FILE\" || cp \"\$TEMP_FILE\" \"\$OUTPUT_FILE\"
+  rm -f \"\$TEMP_FILE\"
+else
+  touch \"\$OUTPUT_FILE\"
+fi
 ")
     
     # Make the script executable
@@ -525,7 +537,8 @@ ${CLANG} -S -emit-llvm -std=c++14 -fPIC -O3 -fno-vectorize -fno-slp-vectorize -f
     
     # Function to generate LLVM IR for a PCL module
     function(PCL_GENERATE_LLVM_IR module_name)
-      set(module_dir "${CMAKE_BINARY_DIR}/llvm/${module_name}_ll")
+      # Create flattened structure directly in llvm/ directory
+      set(module_dir "${CMAKE_BINARY_DIR}/llvm")
       file(MAKE_DIRECTORY ${module_dir})
       
       # Get the source directory for the module
@@ -541,13 +554,52 @@ ${CLANG} -S -emit-llvm -std=c++14 -fPIC -O3 -fno-vectorize -fno-slp-vectorize -f
       # Create custom commands for each source file
       foreach(source ${sources})
         get_filename_component(source_name ${source} NAME_WE)
-        set(ll_file "${module_dir}/${source_name}.ll")
+        # Create flattened filename with module prefix
+        set(ll_file "${module_dir}/${module_name}_${source_name}.ll")
         
-        # Get include directories
-        set(include_dirs "-I${PCL_SOURCE_DIR}/${module_name}/include -I${PCL_SOURCE_DIR}/common/include")
+        # Get include directories as a list first
+        set(include_dirs_list "")
+        list(APPEND include_dirs_list "-I${CMAKE_BINARY_DIR}/include")
+        list(APPEND include_dirs_list "-I${PCL_SOURCE_DIR}/${module_name}/include")
+        list(APPEND include_dirs_list "-I${PCL_SOURCE_DIR}/common/include")
+        # Add all PCL module include directories
+        list(APPEND include_dirs_list "-I${PCL_SOURCE_DIR}/2d/include")
+        list(APPEND include_dirs_list "-I${PCL_SOURCE_DIR}/features/include")
+        list(APPEND include_dirs_list "-I${PCL_SOURCE_DIR}/filters/include")
+        list(APPEND include_dirs_list "-I${PCL_SOURCE_DIR}/geometry/include")
+        list(APPEND include_dirs_list "-I${PCL_SOURCE_DIR}/io/include")
+        list(APPEND include_dirs_list "-I${PCL_SOURCE_DIR}/kdtree/include")
+        list(APPEND include_dirs_list "-I${PCL_SOURCE_DIR}/keypoints/include")
+        list(APPEND include_dirs_list "-I${PCL_SOURCE_DIR}/ml/include")
+        list(APPEND include_dirs_list "-I${PCL_SOURCE_DIR}/octree/include")
+        list(APPEND include_dirs_list "-I${PCL_SOURCE_DIR}/outofcore/include")
+        list(APPEND include_dirs_list "-I${PCL_SOURCE_DIR}/people/include")
+        list(APPEND include_dirs_list "-I${PCL_SOURCE_DIR}/recognition/include")
+        list(APPEND include_dirs_list "-I${PCL_SOURCE_DIR}/registration/include")
+        list(APPEND include_dirs_list "-I${PCL_SOURCE_DIR}/sample_consensus/include")
+        list(APPEND include_dirs_list "-I${PCL_SOURCE_DIR}/search/include")
+        list(APPEND include_dirs_list "-I${PCL_SOURCE_DIR}/segmentation/include")
+        list(APPEND include_dirs_list "-I${PCL_SOURCE_DIR}/simulation/include")
+        list(APPEND include_dirs_list "-I${PCL_SOURCE_DIR}/stereo/include")
+        list(APPEND include_dirs_list "-I${PCL_SOURCE_DIR}/surface/include")
+        list(APPEND include_dirs_list "-I${PCL_SOURCE_DIR}/tracking/include")
+        list(APPEND include_dirs_list "-I${PCL_SOURCE_DIR}/visualization/include")
+        # Add FLANN include directory
+        list(APPEND include_dirs_list "-I${PCL_SOURCE_DIR}/3rdParty/Flann/install/include")
         foreach(inc ${PCL_INCLUDE_DIRS})
-          set(include_dirs "${include_dirs} -I${inc}")
+          list(APPEND include_dirs_list "-I${inc}")
         endforeach()
+        # Add standard system includes
+        list(APPEND include_dirs_list "-I/usr/include/eigen3")
+        # Add LZ4 include directory for FLANN dependency
+        list(APPEND include_dirs_list "-I$ENV{HOME}/.local/include")
+        
+        # Convert list to space-separated string without escaping
+        set(include_dirs "")
+        foreach(inc_dir ${include_dirs_list})
+          set(include_dirs "${include_dirs} ${inc_dir}")
+        endforeach()
+        string(STRIP "${include_dirs}" include_dirs)
         
         # Add definitions
         set(definitions "-DPCL_NO_PRECOMPILE")
@@ -569,10 +621,20 @@ ${CLANG} -S -emit-llvm -std=c++14 -fPIC -O3 -fno-vectorize -fno-slp-vectorize -f
       if(ll_files)
         # Link all .ll files into a single .bc file
         add_custom_command(
-          OUTPUT ${CMAKE_BINARY_DIR}/llvm/${module_name}.bc
-          COMMAND ${LLVM_LINK} ${ll_files} -o ${CMAKE_BINARY_DIR}/llvm/${module_name}.bc 2>/dev/null || touch ${CMAKE_BINARY_DIR}/llvm/${module_name}.bc
+          OUTPUT ${CMAKE_BINARY_DIR}/llvm/${module_name}_raw.bc
+          COMMAND ${LLVM_LINK} ${ll_files} -o ${CMAKE_BINARY_DIR}/llvm/${module_name}_raw.bc
           DEPENDS ${ll_files}
           COMMENT "Linking LLVM IR for ${module_name}"
+        )
+        
+        # Apply lower-invoke pass (required for jlm compatibility)
+        add_custom_command(
+          OUTPUT ${CMAKE_BINARY_DIR}/llvm/${module_name}.bc
+          COMMAND ${OPT} -S -passes=lowerinvoke
+                  ${CMAKE_BINARY_DIR}/llvm/${module_name}_raw.bc
+                  -o ${CMAKE_BINARY_DIR}/llvm/${module_name}.bc
+          DEPENDS ${CMAKE_BINARY_DIR}/llvm/${module_name}_raw.bc
+          COMMENT "Applying lower-invoke pass for ${module_name}"
         )
         
         # Instrument the module
@@ -580,16 +642,68 @@ ${CLANG} -S -emit-llvm -std=c++14 -fPIC -O3 -fno-vectorize -fno-slp-vectorize -f
           OUTPUT ${CMAKE_BINARY_DIR}/llvm/${module_name}_instrumented.bc
           COMMAND ${OPT} -load-pass-plugin="${PASS_PATH}" -passes=bb_instrument
                   ${CMAKE_BINARY_DIR}/llvm/${module_name}.bc
-                  -o ${CMAKE_BINARY_DIR}/llvm/${module_name}_instrumented.bc 2>/dev/null || touch ${CMAKE_BINARY_DIR}/llvm/${module_name}_instrumented.bc
+                  -o ${CMAKE_BINARY_DIR}/llvm/${module_name}_instrumented.bc
           DEPENDS ${CMAKE_BINARY_DIR}/llvm/${module_name}.bc
           COMMENT "Instrumenting LLVM IR for ${module_name}"
         )
         
         # Create custom target
         add_custom_target(pcl_${module_name}_llvm_ir ALL
-          DEPENDS ${CMAKE_BINARY_DIR}/llvm/${module_name}.bc
+          DEPENDS ${CMAKE_BINARY_DIR}/llvm/${module_name}_raw.bc
+                  ${CMAKE_BINARY_DIR}/llvm/${module_name}.bc
                   ${CMAKE_BINARY_DIR}/llvm/${module_name}_instrumented.bc
         )
+      endif()
+    endfunction()
+    
+    # Function to build instrumented shared libraries from instrumented bitcode
+    function(PCL_BUILD_INSTRUMENTED_LIBRARY module_name)
+      # Check if instrumented bitcode exists
+      if(TARGET pcl_${module_name}_llvm_ir)
+        set(instrumented_bc "${CMAKE_BINARY_DIR}/llvm/${module_name}_instrumented.bc")
+        set(instrumented_lib "${CMAKE_BINARY_DIR}/lib/libpcl_${module_name}_instrumented.so")
+        
+        # Create lib directory if it doesn't exist
+        file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
+        
+        # Get library dependencies for this module
+        set(module_libs "")
+        if(module_name STREQUAL "common")
+          # Common module dependencies
+          list(APPEND module_libs "-lboost_system" "-lboost_filesystem" "-lboost_thread" "-lboost_date_time" "-lboost_iostreams" "-lboost_serialization")
+        elseif(module_name STREQUAL "io")
+          # IO module dependencies  
+          list(APPEND module_libs "-lpcl_common_instrumented" "-lboost_system" "-lboost_filesystem")
+        elseif(module_name STREQUAL "filters")
+          # Filters module dependencies
+          list(APPEND module_libs "-lpcl_common_instrumented" "-lboost_system")
+        elseif(module_name STREQUAL "features")
+          # Features module dependencies
+          list(APPEND module_libs "-lpcl_common_instrumented" "-lpcl_search_instrumented" "-lpcl_kdtree_instrumented")
+        endif()
+        
+        # Build shared library from instrumented bitcode
+        add_custom_command(
+          OUTPUT ${instrumented_lib}
+          COMMAND ${CLANG} -shared -fPIC -O3
+                  ${instrumented_bc}
+                  -o ${instrumented_lib}
+                  -L${CMAKE_BINARY_DIR}/lib
+                  -L$ENV{HOME}/.local/lib 
+                  -L${PCL_SOURCE_DIR}/3rdParty/Flann/install/lib
+                  ${module_libs}
+                  || touch ${instrumented_lib}
+          DEPENDS ${instrumented_bc}
+          COMMENT "Building instrumented shared library for ${module_name}"
+        )
+        
+        # Create custom target for instrumented library
+        add_custom_target(pcl_${module_name}_instrumented_lib ALL
+          DEPENDS ${instrumented_lib}
+        )
+        
+        # Make it depend on the LLVM IR target
+        add_dependencies(pcl_${module_name}_instrumented_lib pcl_${module_name}_llvm_ir)
       endif()
     endfunction()
     
@@ -598,11 +712,24 @@ ${CLANG} -S -emit-llvm -std=c++14 -fPIC -O3 -fno-vectorize -fno-slp-vectorize -f
       PCL_GENERATE_LLVM_IR(${module})
     endforeach()
     
+    # Build instrumented libraries for all PCL modules
+    foreach(module ${PCL_MODULES_NAMES})
+      PCL_BUILD_INSTRUMENTED_LIBRARY(${module})
+    endforeach()
+    
     # Add a target to build all LLVM IR
     add_custom_target(pcl_llvm_ir)
     foreach(module ${PCL_MODULES_NAMES})
       if(TARGET pcl_${module}_llvm_ir)
         add_dependencies(pcl_llvm_ir pcl_${module}_llvm_ir)
+      endif()
+    endforeach()
+    
+    # Add a target to build all instrumented libraries
+    add_custom_target(pcl_instrumented_libs)
+    foreach(module ${PCL_MODULES_NAMES})
+      if(TARGET pcl_${module}_instrumented_lib)
+        add_dependencies(pcl_instrumented_libs pcl_${module}_instrumented_lib)
       endif()
     endforeach()
   endif()

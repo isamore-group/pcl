@@ -11,15 +11,8 @@ if(NOT build)
 endif()
 
 if(BUILD_features AND NOT UNIX OR (UNIX AND DEFINED ENV{DISPLAY}))
-    if(PCL_ENABLE_LLVM_IR)
-    PCL_ADD_TEST_WITH_INSTRUMENTATION(a_visualization_test test_visualization
+  PCL_ADD_TEST(a_visualization_test test_visualization
                FILES test_visualization.cpp
                LINK_WITH pcl_gtest pcl_io pcl_visualization pcl_features
                ARGUMENTS "${PCL_SOURCE_DIR}/test/bunny.pcd")
-  else()
-    PCL_ADD_TEST(a_visualization_test test_visualization
-               FILES test_visualization.cpp
-               LINK_WITH pcl_gtest pcl_io pcl_visualization pcl_features
-               ARGUMENTS "${PCL_SOURCE_DIR}/test/bunny.pcd")
-  endif()
 endif()

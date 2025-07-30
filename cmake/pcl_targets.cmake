@@ -419,8 +419,28 @@ macro(PCL_ADD_TEST _name _exename)
   if(NOT WIN32)
     set_target_properties(${_exename} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
   endif()
-  #target_link_libraries(${_exename} ${GTEST_BOTH_LIBRARIES} ${ARGS_LINK_WITH})
-  target_link_libraries(${_exename} ${ARGS_LINK_WITH} ${CLANG_LIBRARIES})
+  
+  # Use instrumented libraries when LLVM IR is enabled
+  if(PCL_ENABLE_LLVM_IR)
+    # Replace regular PCL libraries with instrumented versions, but not gtest or other libs
+    set(instrumented_libs "")
+    foreach(lib ${ARGS_LINK_WITH})
+      if(lib MATCHES "^pcl_" AND NOT lib MATCHES "pcl_gtest")
+        # Replace pcl_xxx with pcl_xxx_instrumented (except gtest)
+        string(REPLACE "pcl_" "pcl_" instrumented_lib ${lib})
+        set(instrumented_lib "${instrumented_lib}_instrumented")
+        list(APPEND instrumented_libs ${instrumented_lib})
+      else()
+        list(APPEND instrumented_libs ${lib})
+      endif()
+    endforeach()
+    target_link_libraries(${_exename} ${instrumented_libs} ${CLANG_LIBRARIES})
+    # Add library path for instrumented libraries
+    target_link_directories(${_exename} PRIVATE ${CMAKE_BINARY_DIR}/lib)
+  else()
+    #target_link_libraries(${_exename} ${GTEST_BOTH_LIBRARIES} ${ARGS_LINK_WITH})
+    target_link_libraries(${_exename} ${ARGS_LINK_WITH} ${CLANG_LIBRARIES})
+  endif()
 
   target_link_libraries(${_exename} Threads::Threads ${ATOMIC_LIBRARY})
 

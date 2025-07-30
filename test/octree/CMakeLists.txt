@@ -9,21 +9,9 @@ if(NOT build)
   return()
 endif()
 
-if(PCL_ENABLE_LLVM_IR)
-  PCL_ADD_TEST_WITH_INSTRUMENTATION(a_octree_test test_octree
+PCL_ADD_TEST(a_octree_test test_octree
               FILES test_octree.cpp
               LINK_WITH pcl_gtest pcl_common pcl_octree)
-else()
-  PCL_ADD_TEST(a_octree_test test_octree
-              FILES test_octree.cpp
-              LINK_WITH pcl_gtest pcl_common pcl_octree)
-endif()
-if(PCL_ENABLE_LLVM_IR)
-  PCL_ADD_TEST_WITH_INSTRUMENTATION(a_octree_iterator_test test_octree_iterator
+PCL_ADD_TEST(a_octree_iterator_test test_octree_iterator
               FILES test_octree_iterator.cpp
               LINK_WITH pcl_gtest pcl_common pcl_octree)
-else()
-  PCL_ADD_TEST(a_octree_iterator_test test_octree_iterator
-              FILES test_octree_iterator.cpp
-              LINK_WITH pcl_gtest pcl_common pcl_octree)
-endif()
