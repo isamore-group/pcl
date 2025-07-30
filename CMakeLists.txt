@@ -639,8 +639,9 @@ fi
         
         # Instrument the module
         add_custom_command(
-          OUTPUT ${CMAKE_BINARY_DIR}/llvm/${module_name}_instrumented.bc
+          OUTPUT ${CMAKE_BINARY_DIR}/llvm/${module_name}_instrumented.bc ${CMAKE_BINARY_DIR}/llvm/${module_name}_counts.csv
           COMMAND ${OPT} -load-pass-plugin="${PASS_PATH}" -passes=bb_instrument
+                  -count-file ${CMAKE_BINARY_DIR}/llvm/${module_name}_counts.csv
                   ${CMAKE_BINARY_DIR}/llvm/${module_name}.bc
                   -o ${CMAKE_BINARY_DIR}/llvm/${module_name}_instrumented.bc
           DEPENDS ${CMAKE_BINARY_DIR}/llvm/${module_name}.bc
@@ -652,6 +653,7 @@ fi
           DEPENDS ${CMAKE_BINARY_DIR}/llvm/${module_name}_raw.bc
                   ${CMAKE_BINARY_DIR}/llvm/${module_name}.bc
                   ${CMAKE_BINARY_DIR}/llvm/${module_name}_instrumented.bc
+                  ${CMAKE_BINARY_DIR}/llvm/${module_name}_counts.csv
         )
       endif()
     endfunction()
