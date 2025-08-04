@@ -638,10 +638,12 @@ macro(PCL_ADD_TEST _name _exename)
   target_link_libraries(${_exename} Threads::Threads ${ATOMIC_LIBRARY})
   target_link_libraries(${_exename} -L/home/uvxiao/.local/lib -llz4)
   
-  # Fix RPATH issues for portable test binaries
+  # Set RPATH for portable test binaries - use absolute path to lib directory
   set_target_properties(${_exename} PROPERTIES 
-    SKIP_BUILD_RPATH TRUE
-    BUILD_WITH_INSTALL_RPATH FALSE
+    SKIP_BUILD_RPATH FALSE
+    BUILD_WITH_INSTALL_RPATH TRUE
+    INSTALL_RPATH "${CMAKE_BINARY_DIR}/lib"
+    INSTALL_RPATH_USE_LINK_PATH FALSE
   )
 
   # Generate .args file for each test executable as per INSTRUMENT.md requirements
