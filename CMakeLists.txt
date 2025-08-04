@@ -30,6 +30,23 @@ endif()
 project(PCL VERSION 1.15.0.99)
 string(TOLOWER ${PROJECT_NAME} PROJECT_NAME_LOWER)
 
+# Check for instrumentation environment variables
+if(DEFINED ENV{PASS_PATH} AND DEFINED ENV{LLVM_DIR})
+  set(PCL_INSTRUMENTATION_ENABLED TRUE)
+  set(PASS_PATH $ENV{PASS_PATH})
+  set(LLVM_DIR $ENV{LLVM_DIR})
+  set(LLVM_LINK "${LLVM_DIR}/bin/llvm-link")
+  set(OPT "${LLVM_DIR}/bin/opt") 
+  set(CLANG "${LLVM_DIR}/bin/clang")
+  
+  message(STATUS "PCL Instrumentation enabled - PASS_PATH: ${PASS_PATH}")
+  message(STATUS "LLVM_LINK: ${LLVM_LINK}")
+  message(STATUS "OPT: ${OPT}")
+  message(STATUS "CLANG: ${CLANG}")
+else()
+  set(PCL_INSTRUMENTATION_ENABLED FALSE)
+endif()
+
 if(MSVC AND ("${MSVC_VERSION}" LESS 1910))
   message(FATAL_ERROR "The compiler versions prior to Visual Studio version 2017 are not supported. Please upgrade to a newer version or another compiler!")
 endif()
@@ -519,6 +536,16 @@ endif()
 ### ---[ Make a pretty picture of the dependency graph
 include("${PCL_SOURCE_DIR}/cmake/dep_graph.cmake")
 MAKE_DEP_GRAPH()
+
+### ---[ Create global instrumented libraries target
+if(PCL_INSTRUMENTATION_ENABLED)
+  get_property(PCL_INSTRUMENTED_LIBS_LIST GLOBAL PROPERTY PCL_INSTRUMENTED_LIBS)
+  if(PCL_INSTRUMENTED_LIBS_LIST)
+    string(REPLACE ";" "\\;" INSTRUMENTED_LIBS_ESCAPED "${PCL_INSTRUMENTED_LIBS_LIST}")
+    message(STATUS "Created global target 'all_instrumented_libs' depending on: ${INSTRUMENTED_LIBS_ESCAPED}")
+    add_custom_target(all_instrumented_libs DEPENDS ${PCL_INSTRUMENTED_LIBS_LIST})
+  endif()
+endif()
 
 ### ---[ Finish up
 PCL_WRITE_STATUS_REPORT()

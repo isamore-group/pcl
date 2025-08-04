@@ -4,6 +4,28 @@ include(${PROJECT_SOURCE_DIR}/cmake/pcl_utils.cmake)
 # set to the directory where a function is used, not where a function is defined
 set(_PCL_TARGET_CMAKE_DIR ${CMAKE_CURRENT_LIST_DIR})
 
+# Instrumentation settings - following liquid-dsp pattern
+set(PASS_PATH "$ENV{PASS_PATH}")
+set(LLVM_DIR "$ENV{LLVM_DIR}")
+
+if (PASS_PATH AND LLVM_DIR)
+    message(STATUS "PCL Instrumentation enabled - PASS_PATH: ${PASS_PATH}")
+    set(LLVM_LINK "${LLVM_DIR}/bin/llvm-link")
+    message(STATUS "LLVM_LINK: ${LLVM_LINK}")  
+    set(OPT "${LLVM_DIR}/bin/opt")
+    message(STATUS "OPT: ${OPT}")
+    set(CLANG "${LLVM_DIR}/bin/clang")
+    message(STATUS "CLANG: ${CLANG}")
+
+    # Set compilers for instrumentation
+    set(CMAKE_C_COMPILER ${CLANG})
+    set(CMAKE_CXX_COMPILER ${CLANG}++)
+    set(PCL_INSTRUMENTATION_ENABLED TRUE)
+else()
+    message(STATUS "PCL Instrumentation disabled - PASS_PATH or LLVM_DIR not set")
+    set(PCL_INSTRUMENTATION_ENABLED FALSE)
+endif()
+
 ###############################################################################
 # Add an option to build a subsystem or not.
 # _var The name of the variable to store the option in.
@@ -186,7 +208,6 @@ function(PCL_ADD_LIBRARY _name)
   if(NOT ARGS_SOURCES)
     if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.19)
       add_library(${_name} INTERFACE ${ARGS_INCLUDES})
-
       set_target_properties(${_name} PROPERTIES FOLDER "Libraries")
     else()
       add_library(${_name} INTERFACE)
@@ -197,48 +218,240 @@ function(PCL_ADD_LIBRARY _name)
       $<INSTALL_INTERFACE:${INCLUDE_INSTALL_ROOT}> 
     )
   else()
-    add_library(${_name} ${PCL_LIB_TYPE} ${ARGS_SOURCES})
-    PCL_ADD_VERSION_INFO(${_name})
-    target_compile_features(${_name} PUBLIC ${PCL_CXX_COMPILE_FEATURES})
+    if(PCL_INSTRUMENTATION_ENABLED)
+      # Filter out non-.cpp/.c files for instrumentation
+      set(CPP_SOURCES)
+      foreach(src ${ARGS_SOURCES})
+        get_filename_component(ext ${src} EXT)
+        if(ext STREQUAL ".cpp" OR ext STREQUAL ".c")
+          list(APPEND CPP_SOURCES ${src})
+        endif()
+      endforeach()
 
-    target_include_directories(${_name} PUBLIC
-      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-      $<INSTALL_INTERFACE:${INCLUDE_INSTALL_ROOT}> 
-    )
+      if(CPP_SOURCES)
+        # For instrumented build, use actual source files - instrumentation will override the library
+        add_library(${_name} ${PCL_LIB_TYPE} ${CPP_SOURCES})
+        PCL_ADD_VERSION_INFO(${_name})
+        target_compile_features(${_name} PUBLIC ${PCL_CXX_COMPILE_FEATURES})
 
-    target_link_libraries(${_name} Threads::Threads)
-    if(TARGET OpenMP::OpenMP_CXX)
-      target_link_libraries(${_name} OpenMP::OpenMP_CXX)
+        target_include_directories(${_name} PUBLIC
+          $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+          $<INSTALL_INTERFACE:${INCLUDE_INSTALL_ROOT}> 
+        )
+
+        target_link_libraries(${_name} Threads::Threads)
+        if(TARGET OpenMP::OpenMP_CXX)
+          target_link_libraries(${_name} OpenMP::OpenMP_CXX)
+        endif()
+
+        if((UNIX AND NOT ANDROID) OR MINGW)
+          target_link_libraries(${_name} m ${ATOMIC_LIBRARY})
+        endif()
+
+        if(MINGW)
+          target_link_libraries(${_name} gomp)
+        endif()
+
+        if(MSVC)
+          target_link_libraries(${_name} delayimp.lib)
+        endif()
+        
+        set_target_properties(${_name} PROPERTIES
+          VERSION ${PCL_VERSION}
+          SOVERSION ${PCL_VERSION_MAJOR}.${PCL_VERSION_MINOR}
+          DEFINE_SYMBOL "PCLAPI_EXPORTS"
+          FOLDER "Libraries")
+
+        # Now create the instrumentation workflow
+        set(PCL_LL_FILES)
+        set(PCL_LL_INSTRUMENTED_FILES)
+        
+        foreach(cpp_source ${CPP_SOURCES})
+          # Create unique file names by using full relative path
+          string(REPLACE "/" "_" source_path_safe ${cpp_source})
+          get_filename_component(source_name ${source_path_safe} NAME_WE)
+          set(ll_file "${CMAKE_CURRENT_BINARY_DIR}/${_name}_${source_name}.ll")
+          set(ll_instrumented_file "${CMAKE_CURRENT_BINARY_DIR}/${_name}_${source_name}_instrumented.ll")
+          
+          # Compile to LLVM IR
+          get_filename_component(source_ext ${cpp_source} EXT)
+          if(source_ext STREQUAL ".c")
+            set(LANG_FLAGS "-std=c11")
+          else()
+            set(LANG_FLAGS "-std=c++17")
+          endif()
+          
+          add_custom_command(
+            OUTPUT ${ll_file}
+            COMMAND ${CLANG} -S -emit-llvm ${LANG_FLAGS} -fPIC -O3 
+                    -I${CMAKE_CURRENT_SOURCE_DIR}/include 
+                    -I${PROJECT_SOURCE_DIR}/common/include
+                    -I${PROJECT_SOURCE_DIR}/kdtree/include
+                    -I${PROJECT_SOURCE_DIR}/octree/include
+                    -I${PROJECT_SOURCE_DIR}/search/include
+                    -I${PROJECT_SOURCE_DIR}/sample_consensus/include
+                    -I${PROJECT_SOURCE_DIR}/filters/include
+                    -I${PROJECT_SOURCE_DIR}/2d/include
+                    -I${PROJECT_SOURCE_DIR}/geometry/include
+                    -I${PROJECT_SOURCE_DIR}/io/include
+                    -I${PROJECT_SOURCE_DIR}/features/include
+                    -I${PROJECT_SOURCE_DIR}/ml/include
+                    -I${PROJECT_SOURCE_DIR}/segmentation/include
+                    -I${PROJECT_SOURCE_DIR}/surface/include
+                    -I${PROJECT_SOURCE_DIR}/registration/include
+                    -I${PROJECT_SOURCE_DIR}/keypoints/include
+                    -I${PROJECT_SOURCE_DIR}/tracking/include
+                    -I${PROJECT_SOURCE_DIR}/recognition/include
+                    -I${PROJECT_SOURCE_DIR}/stereo/include
+                    -I${PROJECT_SOURCE_DIR}/outofcore/include
+                    -I${CMAKE_CURRENT_BINARY_DIR}/include
+                    -I${PROJECT_BINARY_DIR}/include
+                    -I${FLANN_INSTALL_PATH}/include
+                    -I${EIGEN3_INCLUDE_DIR}
+                    -I/home/uvxiao/.local/include
+                    -c ${CMAKE_CURRENT_SOURCE_DIR}/${cpp_source} -o ${ll_file}
+            DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${cpp_source}
+          )
+          
+          # Instrument LLVM IR
+          add_custom_command(
+            OUTPUT ${ll_instrumented_file}
+            COMMAND ${OPT} -load-pass-plugin="${PASS_PATH}" -passes=bb_instrument ${ll_file} -o ${ll_instrumented_file}
+            DEPENDS ${ll_file}
+          )
+          
+          list(APPEND PCL_LL_FILES ${ll_file})
+          list(APPEND PCL_LL_INSTRUMENTED_FILES ${ll_instrumented_file})
+        endforeach()
+
+        # Step 2: Link LLVM IR files into bitcode
+        add_custom_command(
+          OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${_name}.bc
+          COMMAND ${LLVM_LINK} ${PCL_LL_FILES} -o ${CMAKE_CURRENT_BINARY_DIR}/${_name}.bc
+          DEPENDS ${PCL_LL_FILES}
+        )
+
+        add_custom_command(
+          OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${_name}_instrumented.bc
+          COMMAND ${LLVM_LINK} ${PCL_LL_INSTRUMENTED_FILES} -o ${CMAKE_CURRENT_BINARY_DIR}/${_name}_instrumented.bc
+          DEPENDS ${PCL_LL_INSTRUMENTED_FILES}
+        )
+
+        # Step 3: Create instrumented shared library and overwrite the dummy one
+        add_custom_command(
+          OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${_name}_instrumented_lib.stamp
+          COMMAND ${CLANG} -shared -fPIC ${CMAKE_CURRENT_BINARY_DIR}/${_name}_instrumented.bc 
+                  -o $<TARGET_FILE:${_name}> -L/home/uvxiao/.local/lib -llz4
+          COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_BINARY_DIR}/${_name}_instrumented_lib.stamp
+          DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${_name}_instrumented.bc
+        )
+
+        # Create custom targets for instrumented artifacts
+        add_custom_target(${_name}_ll ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${_name}.bc)
+        add_custom_target(${_name}_ll_instrumented ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${_name}_instrumented.bc)
+        add_custom_target(${_name}_instrumented_lib ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${_name}_instrumented_lib.stamp)
+        
+        # Make sure the instrumented library is built after the dummy library
+        add_dependencies(${_name}_instrumented_lib ${_name})
+        
+        # Add to global list for all_instrumented_libs target
+        set_property(GLOBAL APPEND PROPERTY PCL_INSTRUMENTED_LIBS ${_name}_instrumented_lib)
+
+        install(TARGETS ${_name}
+                RUNTIME DESTINATION ${BIN_INSTALL_DIR} COMPONENT pcl_${ARGS_COMPONENT}
+                LIBRARY DESTINATION ${LIB_INSTALL_DIR} COMPONENT pcl_${ARGS_COMPONENT}
+                ARCHIVE DESTINATION ${LIB_INSTALL_DIR} COMPONENT pcl_${ARGS_COMPONENT})
+        
+        # Install the bitcode files as well
+        install(FILES 
+          ${CMAKE_CURRENT_BINARY_DIR}/${_name}.bc
+          ${CMAKE_CURRENT_BINARY_DIR}/${_name}_instrumented.bc
+          DESTINATION ${LIB_INSTALL_DIR}
+          COMPONENT pcl_${ARGS_COMPONENT}
+        )
+      else()
+        # No .cpp/.c files to instrument, create regular library
+        add_library(${_name} ${PCL_LIB_TYPE} ${ARGS_SOURCES})
+        PCL_ADD_VERSION_INFO(${_name})
+        target_compile_features(${_name} PUBLIC ${PCL_CXX_COMPILE_FEATURES})
+
+        target_include_directories(${_name} PUBLIC
+          $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+          $<INSTALL_INTERFACE:${INCLUDE_INSTALL_ROOT}> 
+        )
+
+        target_link_libraries(${_name} Threads::Threads)
+        if(TARGET OpenMP::OpenMP_CXX)
+          target_link_libraries(${_name} OpenMP::OpenMP_CXX)
+        endif()
+
+        if((UNIX AND NOT ANDROID) OR MINGW)
+          target_link_libraries(${_name} m ${ATOMIC_LIBRARY})
+        endif()
+
+        if(MINGW)
+          target_link_libraries(${_name} gomp)
+        endif()
+
+        if(MSVC)
+          target_link_libraries(${_name} delayimp.lib)
+        endif()
+        
+        set_target_properties(${_name} PROPERTIES
+          VERSION ${PCL_VERSION}
+          SOVERSION ${PCL_VERSION_MAJOR}.${PCL_VERSION_MINOR}
+          DEFINE_SYMBOL "PCLAPI_EXPORTS"
+          FOLDER "Libraries")
+
+        install(TARGETS ${_name}
+                RUNTIME DESTINATION ${BIN_INSTALL_DIR} COMPONENT pcl_${ARGS_COMPONENT}
+                LIBRARY DESTINATION ${LIB_INSTALL_DIR} COMPONENT pcl_${ARGS_COMPONENT}
+                ARCHIVE DESTINATION ${LIB_INSTALL_DIR} COMPONENT pcl_${ARGS_COMPONENT})
+      endif()
+    else()
+      # Non-instrumented build - create regular library
+      add_library(${_name} ${PCL_LIB_TYPE} ${ARGS_SOURCES})
+      PCL_ADD_VERSION_INFO(${_name})
+      target_compile_features(${_name} PUBLIC ${PCL_CXX_COMPILE_FEATURES})
+
+      target_include_directories(${_name} PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${INCLUDE_INSTALL_ROOT}> 
+      )
+
+      target_link_libraries(${_name} Threads::Threads)
+      if(TARGET OpenMP::OpenMP_CXX)
+        target_link_libraries(${_name} OpenMP::OpenMP_CXX)
+      endif()
+
+      if((UNIX AND NOT ANDROID) OR MINGW)
+        target_link_libraries(${_name} m ${ATOMIC_LIBRARY})
+      endif()
+
+      if(MINGW)
+        target_link_libraries(${_name} gomp)
+      endif()
+
+      if(MSVC)
+        target_link_libraries(${_name} delayimp.lib)
+      endif()
+      
+      set_target_properties(${_name} PROPERTIES
+        VERSION ${PCL_VERSION}
+        SOVERSION ${PCL_VERSION_MAJOR}.${PCL_VERSION_MINOR}
+        DEFINE_SYMBOL "PCLAPI_EXPORTS"
+        FOLDER "Libraries")
+
+      install(TARGETS ${_name}
+              RUNTIME DESTINATION ${BIN_INSTALL_DIR} COMPONENT pcl_${ARGS_COMPONENT}
+              LIBRARY DESTINATION ${LIB_INSTALL_DIR} COMPONENT pcl_${ARGS_COMPONENT}
+              ARCHIVE DESTINATION ${LIB_INSTALL_DIR} COMPONENT pcl_${ARGS_COMPONENT})
+
+      # Copy PDB if available
+      if(MSVC AND ${PCL_LIB_TYPE} EQUAL "SHARED")
+        install(FILES $<TARGET_PDB_FILE:${_name}> DESTINATION ${BIN_INSTALL_DIR} OPTIONAL)
+      endif()
     endif()
-
-    if((UNIX AND NOT ANDROID) OR MINGW)
-      target_link_libraries(${_name} m ${ATOMIC_LIBRARY})
-    endif()
-
-    if(MINGW)
-      target_link_libraries(${_name} gomp)
-    endif()
-
-    if(MSVC)
-      target_link_libraries(${_name} delayimp.lib)  # because delay load is enabled for openmp.dll
-    endif()
-    
-    set_target_properties(${_name} PROPERTIES
-      VERSION ${PCL_VERSION}
-      SOVERSION ${PCL_VERSION_MAJOR}.${PCL_VERSION_MINOR}
-      DEFINE_SYMBOL "PCLAPI_EXPORTS")
-
-      set_target_properties(${_name} PROPERTIES FOLDER "Libraries")
-  endif()
-
-  install(TARGETS ${_name}
-          RUNTIME DESTINATION ${BIN_INSTALL_DIR} COMPONENT pcl_${ARGS_COMPONENT}
-          LIBRARY DESTINATION ${LIB_INSTALL_DIR} COMPONENT pcl_${ARGS_COMPONENT}
-          ARCHIVE DESTINATION ${LIB_INSTALL_DIR} COMPONENT pcl_${ARGS_COMPONENT})
-
-  # Copy PDB if available
-  if(MSVC AND ${PCL_LIB_TYPE} EQUAL "SHARED")
-    install(FILES $<TARGET_PDB_FILE:${_name}> DESTINATION ${BIN_INSTALL_DIR} OPTIONAL)
   endif()
 endfunction()
 
@@ -423,14 +636,26 @@ macro(PCL_ADD_TEST _name _exename)
   target_link_libraries(${_exename} ${ARGS_LINK_WITH} ${CLANG_LIBRARIES})
 
   target_link_libraries(${_exename} Threads::Threads ${ATOMIC_LIBRARY})
+  target_link_libraries(${_exename} -L/home/uvxiao/.local/lib -llz4)
+  
+  # Fix RPATH issues for portable test binaries
+  set_target_properties(${_exename} PROPERTIES 
+    SKIP_BUILD_RPATH TRUE
+    BUILD_WITH_INSTALL_RPATH FALSE
+  )
 
-  #Only applies to MSVC
-  if(MSVC)
-    #Only add if there are arguments to test
-    if(ARGS_ARGUMENTS)
-      string (REPLACE ";" " " ARGS_ARGUMENTS_STR "${ARGS_ARGUMENTS}")
+  # Generate .args file for each test executable as per INSTRUMENT.md requirements
+  if(ARGS_ARGUMENTS)
+    string (REPLACE ";" " " ARGS_ARGUMENTS_STR "${ARGS_ARGUMENTS}")
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/${_exename}.args" "${ARGS_ARGUMENTS_STR}")
+    
+    #Only applies to MSVC
+    if(MSVC)
       set_target_properties(${_exename} PROPERTIES VS_DEBUGGER_COMMAND_ARGUMENTS ${ARGS_ARGUMENTS_STR})
     endif()
+  else()
+    # Create empty .args file if no arguments
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/${_exename}.args" "")
   endif()
 
   set_target_properties(${_exename} PROPERTIES FOLDER "Tests")
