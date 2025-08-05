@@ -39,6 +39,12 @@ if(DEFINED ENV{PASS_PATH} AND DEFINED ENV{LLVM_DIR})
   set(OPT "${LLVM_DIR}/bin/opt") 
   set(CLANG "${LLVM_DIR}/bin/clang")
   
+  # Check for FLANN_INSTALL_PATH for instrumentation
+  if(DEFINED ENV{FLANN_INSTALL_PATH})
+    set(FLANN_INSTALL_PATH $ENV{FLANN_INSTALL_PATH})
+    message(STATUS "FLANN_INSTALL_PATH: ${FLANN_INSTALL_PATH}")
+  endif()
+  
   message(STATUS "PCL Instrumentation enabled - PASS_PATH: ${PASS_PATH}")
   message(STATUS "LLVM_LINK: ${LLVM_LINK}")
   message(STATUS "OPT: ${OPT}")
