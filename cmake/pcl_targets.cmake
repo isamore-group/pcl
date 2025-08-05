@@ -317,7 +317,7 @@ function(PCL_ADD_LIBRARY _name)
           # Instrument LLVM IR
           add_custom_command(
             OUTPUT ${ll_instrumented_file}
-            COMMAND ${OPT} -load-pass-plugin="${PASS_PATH}" -passes=bb_instrument ${ll_file} -o ${ll_instrumented_file}
+            COMMAND ${OPT} -load-pass-plugin="${PASS_PATH}" -passes=bb_instrument ${ll_file} -o ${ll_instrumented_file} > /dev/null 2>&1
             DEPENDS ${ll_file}
           )
           
@@ -342,7 +342,7 @@ function(PCL_ADD_LIBRARY _name)
         # Generate operation count CSV file using bb_instrument pass with count-file option
         add_custom_command(
           OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${_name}_op_count.csv
-          COMMAND ${OPT} -load-pass-plugin="${PASS_PATH}" -passes=bb_instrument ${CMAKE_CURRENT_BINARY_DIR}/${_name}.bc -o /dev/null --count-file=${CMAKE_CURRENT_BINARY_DIR}/${_name}_op_count.csv
+          COMMAND ${OPT} -load-pass-plugin="${PASS_PATH}" -passes=bb_instrument ${CMAKE_CURRENT_BINARY_DIR}/${_name}.bc -o /dev/null --count-file=${CMAKE_CURRENT_BINARY_DIR}/${_name}_op_count.csv > /dev/null 2>&1
           DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${_name}.bc
         )
 
