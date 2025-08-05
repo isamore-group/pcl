@@ -367,6 +367,10 @@ function(PCL_ADD_LIBRARY _name)
         add_custom_target(${_name}_op_count ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${_name}_op_count.csv)
         add_custom_target(${_name}_instrumented_lib ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${_name}_instrumented_lib.stamp)
         
+        # Add stamp file to clean target
+        set_property(TARGET ${_name}_instrumented_lib PROPERTY ADDITIONAL_CLEAN_FILES 
+          "${CMAKE_CURRENT_BINARY_DIR}/${_name}_instrumented_lib.stamp")
+        
         # Make sure the instrumented library is built after the dummy library
         add_dependencies(${_name}_instrumented_lib ${_name})
         
