@@ -283,7 +283,8 @@ function(PCL_ADD_LIBRARY _name)
           
           add_custom_command(
             OUTPUT ${ll_file}
-            COMMAND ${CLANG} -S -emit-llvm ${LANG_FLAGS} -fPIC -O3 
+            COMMAND ${CLANG} -S -emit-llvm ${LANG_FLAGS} -fPIC -O2 
+                    -fno-vectorize -fno-slp-vectorize -ffp-contract=off -mno-avx -mno-avx2 -mno-avx512f -mno-fma
                     -I${CMAKE_CURRENT_SOURCE_DIR}/include 
                     -I${PROJECT_SOURCE_DIR}/common/include
                     -I${PROJECT_SOURCE_DIR}/kdtree/include
@@ -354,7 +355,8 @@ function(PCL_ADD_LIBRARY _name)
         # Step 3: Create instrumented shared library and overwrite the dummy one
         add_custom_command(
           OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${_name}_instrumented_lib.stamp
-          COMMAND ${CLANG} -shared -fPIC ${CMAKE_CURRENT_BINARY_DIR}/${_name}_instrumented.bc 
+          COMMAND ${CLANG} -shared -fPIC -fno-vectorize -fno-slp-vectorize -ffp-contract=off -mno-avx -mno-avx2 -mno-avx512f -mno-fma
+                  ${CMAKE_CURRENT_BINARY_DIR}/${_name}_instrumented.bc 
                   -o $<TARGET_FILE:${_name}> -L/home/uvxiao/.local/lib -llz4
           COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_BINARY_DIR}/${_name}_instrumented_lib.stamp
           DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${_name}_instrumented.bc
@@ -661,9 +663,12 @@ macro(PCL_ADD_TEST _name _exename)
   # Set RPATH for portable test binaries - use absolute path to lib directory
   set_target_properties(${_exename} PROPERTIES 
     SKIP_BUILD_RPATH FALSE
-    BUILD_WITH_INSTALL_RPATH TRUE
+    BUILD_WITH_INSTALL_RPATH FALSE
+    BUILD_RPATH "${CMAKE_BINARY_DIR}/lib"
     INSTALL_RPATH "${CMAKE_BINARY_DIR}/lib"
     INSTALL_RPATH_USE_LINK_PATH FALSE
+    BUILD_RPATH_USE_ORIGIN FALSE
+    LINK_WHAT_YOU_USE TRUE
   )
 
   # Generate .args file for each test executable as per INSTRUMENT.md requirements
@@ -678,6 +683,14 @@ macro(PCL_ADD_TEST _name _exename)
   else()
     # Create empty .args file if no arguments
     file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/${_exename}.args" "")
+  endif()
+
+  # Add post-build step to fix library paths using patchelf
+  if(UNIX AND NOT APPLE)
+    add_custom_command(TARGET ${_exename} POST_BUILD
+      COMMAND ${CMAKE_SOURCE_DIR}/../fix_binary_libs.sh $<TARGET_FILE:${_exename}> ${CMAKE_BINARY_DIR}/lib ${FLANN_INSTALL_PATH}/lib
+      COMMENT "Fixing library paths for ${_exename}"
+    )
   endif()
 
   set_target_properties(${_exename} PROPERTIES FOLDER "Tests")

@@ -329,7 +329,13 @@ endif()
 ### ---[ Find universal dependencies
 
 # OpenMP (optional)
-option(WITH_OPENMP "Build with parallelization using OpenMP" TRUE)
+# Check if OpenMP is disabled for gem5 compatibility
+if(PCL_DISABLE_OPENMP)
+  set(WITH_OPENMP_DEFAULT FALSE)
+else()
+  set(WITH_OPENMP_DEFAULT TRUE)
+endif()
+option(WITH_OPENMP "Build with parallelization using OpenMP" ${WITH_OPENMP_DEFAULT})
 option(USE_HOMEBREW_FALLBACK "(macOS-only) also look in 'brew --prefix' for libraries (e.g. OpenMP)" TRUE)
 if(WITH_OPENMP)
   find_package(OpenMP COMPONENTS C CXX)
