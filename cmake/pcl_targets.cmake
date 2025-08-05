@@ -229,8 +229,7 @@ function(PCL_ADD_LIBRARY _name)
       endforeach()
 
       if(CPP_SOURCES)
-        # For instrumented build, use actual source files - instrumentation will override the library
-        add_library(${_name} ${PCL_LIB_TYPE} ${CPP_SOURCES})
+        add_library(${_name} ${PCL_LIB_TYPE} ${ARGS_SOURCES})
         PCL_ADD_VERSION_INFO(${_name})
         target_compile_features(${_name} PUBLIC ${PCL_CXX_COMPILE_FEATURES})
 
