@@ -662,12 +662,10 @@ macro(PCL_ADD_TEST _name _exename)
   # Set RPATH for portable test binaries - use absolute path to lib directory
   set_target_properties(${_exename} PROPERTIES 
     SKIP_BUILD_RPATH FALSE
-    BUILD_WITH_INSTALL_RPATH FALSE
-    BUILD_RPATH "${CMAKE_BINARY_DIR}/lib"
-    INSTALL_RPATH "${CMAKE_BINARY_DIR}/lib"
+    BUILD_WITH_INSTALL_RPATH TRUE
+    INSTALL_RPATH "${CMAKE_BINARY_DIR}/lib:${FLANN_INSTALL_PATH}/lib:/home/uvxiao/.local/lib"
     INSTALL_RPATH_USE_LINK_PATH FALSE
     BUILD_RPATH_USE_ORIGIN FALSE
-    LINK_WHAT_YOU_USE TRUE
   )
 
   # Generate .args file for each test executable as per INSTRUMENT.md requirements

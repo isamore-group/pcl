@@ -131,13 +131,7 @@ set(impl_incs
 
 set(LIB_NAME "pcl_${SUBSYS_NAME}")
 PCL_ADD_LIBRARY(${LIB_NAME} COMPONENT ${SUBSYS_NAME} SOURCES ${srcs} ${incs} ${impl_incs})
-target_link_libraries("${LIB_NAME}" 
-  ${CMAKE_BINARY_DIR}/lib/libpcl_common.so
-  ${CMAKE_BINARY_DIR}/lib/libpcl_sample_consensus.so 
-  ${CMAKE_BINARY_DIR}/lib/libpcl_search.so
-  ${CMAKE_BINARY_DIR}/lib/libpcl_kdtree.so
-  ${CMAKE_BINARY_DIR}/lib/libpcl_octree.so
-)
+target_link_libraries("${LIB_NAME}" pcl_common pcl_sample_consensus pcl_search pcl_kdtree pcl_octree)
 PCL_MAKE_PKGCONFIG(${LIB_NAME} COMPONENT ${SUBSYS_NAME} DESC ${SUBSYS_DESC} PCL_DEPS ${SUBSYS_DEPS})
 
 # Install include files
