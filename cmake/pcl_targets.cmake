@@ -324,11 +324,25 @@ function(PCL_ADD_LIBRARY _name)
           list(APPEND PCL_LL_INSTRUMENTED_FILES ${ll_instrumented_file})
         endforeach()
 
-        # Step 2: Link LLVM IR files into bitcode
+        # Step 2: Link LLVM IR files into bitcode and generate linked .ll file
         add_custom_command(
           OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${_name}.bc
           COMMAND ${LLVM_LINK} ${PCL_LL_FILES} -o ${CMAKE_CURRENT_BINARY_DIR}/${_name}.bc
           DEPENDS ${PCL_LL_FILES}
+        )
+
+        # Generate linked .ll file (human-readable LLVM IR) for the module
+        add_custom_command(
+          OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${_name}.ll
+          COMMAND ${LLVM_LINK} ${PCL_LL_FILES} -S -o ${CMAKE_CURRENT_BINARY_DIR}/${_name}.ll
+          DEPENDS ${PCL_LL_FILES}
+        )
+
+        # Generate operation count CSV file using bb_instrument pass with count-file option
+        add_custom_command(
+          OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${_name}_op_count.csv
+          COMMAND ${OPT} -load-pass-plugin="${PASS_PATH}" -passes=bb_instrument ${CMAKE_CURRENT_BINARY_DIR}/${_name}.bc -o /dev/null --count-file=${CMAKE_CURRENT_BINARY_DIR}/${_name}_op_count.csv
+          DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${_name}.bc
         )
 
         add_custom_command(
@@ -347,8 +361,9 @@ function(PCL_ADD_LIBRARY _name)
         )
 
         # Create custom targets for instrumented artifacts
-        add_custom_target(${_name}_ll ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${_name}.bc)
+        add_custom_target(${_name}_ll ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${_name}.bc ${CMAKE_CURRENT_BINARY_DIR}/${_name}.ll)
         add_custom_target(${_name}_ll_instrumented ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${_name}_instrumented.bc)
+        add_custom_target(${_name}_op_count ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${_name}_op_count.csv)
         add_custom_target(${_name}_instrumented_lib ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${_name}_instrumented_lib.stamp)
         
         # Make sure the instrumented library is built after the dummy library
@@ -356,16 +371,21 @@ function(PCL_ADD_LIBRARY _name)
         
         # Add to global list for all_instrumented_libs target
         set_property(GLOBAL APPEND PROPERTY PCL_INSTRUMENTED_LIBS ${_name}_instrumented_lib)
+        # Also add the linked .ll and op_count.csv targets
+        set_property(GLOBAL APPEND PROPERTY PCL_INSTRUMENTED_LIBS ${_name}_ll)
+        set_property(GLOBAL APPEND PROPERTY PCL_INSTRUMENTED_LIBS ${_name}_op_count)
 
         install(TARGETS ${_name}
                 RUNTIME DESTINATION ${BIN_INSTALL_DIR} COMPONENT pcl_${ARGS_COMPONENT}
                 LIBRARY DESTINATION ${LIB_INSTALL_DIR} COMPONENT pcl_${ARGS_COMPONENT}
                 ARCHIVE DESTINATION ${LIB_INSTALL_DIR} COMPONENT pcl_${ARGS_COMPONENT})
         
-        # Install the bitcode files as well
+        # Install the bitcode files, linked LLVM IR, and operation count CSV
         install(FILES 
           ${CMAKE_CURRENT_BINARY_DIR}/${_name}.bc
+          ${CMAKE_CURRENT_BINARY_DIR}/${_name}.ll
           ${CMAKE_CURRENT_BINARY_DIR}/${_name}_instrumented.bc
+          ${CMAKE_CURRENT_BINARY_DIR}/${_name}_op_count.csv
           DESTINATION ${LIB_INSTALL_DIR}
           COMPONENT pcl_${ARGS_COMPONENT}
         )
