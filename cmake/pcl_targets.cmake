@@ -313,10 +313,10 @@ function(PCL_ADD_LIBRARY _name)
             DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${cpp_source}
           )
           
-          # Instrument LLVM IR
+          # Instrument LLVM IR with fast counting  
           add_custom_command(
             OUTPUT ${ll_instrumented_file}
-            COMMAND ${OPT} -load-pass-plugin="${PASS_PATH}" -passes=bb_instrument ${ll_file} -o ${ll_instrumented_file} > /dev/null 2>&1
+            COMMAND ${OPT} -load-pass-plugin="${PASS_PATH}" -passes=bb_instrument -just-count ${ll_file} -o ${ll_instrumented_file} > /dev/null 2>&1
             DEPENDS ${ll_file}
           )
           
@@ -338,10 +338,10 @@ function(PCL_ADD_LIBRARY _name)
           DEPENDS ${PCL_LL_FILES}
         )
 
-        # Generate operation count CSV file using bb_instrument pass with count-file option
+        # Generate operation count CSV file using bb_instrument pass with just-count and count-file options
         add_custom_command(
           OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${_name}_op_count.csv
-          COMMAND ${OPT} -load-pass-plugin="${PASS_PATH}" -passes=bb_instrument ${CMAKE_CURRENT_BINARY_DIR}/${_name}.bc -o /dev/null --count-file=${CMAKE_CURRENT_BINARY_DIR}/${_name}_op_count.csv > /dev/null 2>&1
+          COMMAND ${OPT} -load-pass-plugin="${PASS_PATH}" -passes=bb_instrument -just-count ${CMAKE_CURRENT_BINARY_DIR}/${_name}.bc -o /dev/null --count-file=${CMAKE_CURRENT_BINARY_DIR}/${_name}_op_count.csv > /dev/null 2>&1
           DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${_name}.bc
         )
 
@@ -653,17 +653,18 @@ macro(PCL_ADD_TEST _name _exename)
     message(FATAL_ERROR "Unknown arguments given to PCL_ADD_TEST: ${ARGS_UNPARSED_ARGUMENTS}")
   endif()
 
+  # Always create regular executable target first for compatibility
   add_executable(${_exename} ${ARGS_FILES})
+  target_link_libraries(${_exename} ${ARGS_LINK_WITH} ${CLANG_LIBRARIES})
+  
   if(NOT WIN32)
     set_target_properties(${_exename} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
   endif()
-  #target_link_libraries(${_exename} ${GTEST_BOTH_LIBRARIES} ${ARGS_LINK_WITH})
-  target_link_libraries(${_exename} ${ARGS_LINK_WITH} ${CLANG_LIBRARIES})
 
   target_link_libraries(${_exename} Threads::Threads ${ATOMIC_LIBRARY})
   target_link_libraries(${_exename} -L/home/uvxiao/.local/lib -llz4)
   
-  # Set RPATH for portable test binaries - use absolute path to lib directory
+  # Set RPATH for portable test binaries
   set_target_properties(${_exename} PROPERTIES 
     SKIP_BUILD_RPATH FALSE
     BUILD_WITH_INSTALL_RPATH TRUE
@@ -671,6 +672,125 @@ macro(PCL_ADD_TEST _name _exename)
     INSTALL_RPATH_USE_LINK_PATH FALSE
     BUILD_RPATH_USE_ORIGIN FALSE
   )
+  
+  if(PCL_INSTRUMENTATION_ENABLED)
+    # Create instrumented version as a separate executable
+    set(instrumented_exe "${_exename}_instrumented")
+    set(ll_instrumented_files "")
+    
+    # Convert each source file to instrumented LLVM IR
+    foreach(source_file ${ARGS_FILES})
+      get_filename_component(source_name ${source_file} NAME_WE)
+      get_filename_component(source_dir ${source_file} DIRECTORY)
+      
+      # Make source path absolute if relative
+      if(NOT IS_ABSOLUTE ${source_file})
+        set(abs_source_file "${CMAKE_CURRENT_SOURCE_DIR}/${source_file}")
+      else()
+        set(abs_source_file ${source_file})
+      endif()
+      
+      set(ll_file "${CMAKE_CURRENT_BINARY_DIR}/${source_name}.ll")
+      set(ll_instrumented_file "${CMAKE_CURRENT_BINARY_DIR}/${source_name}_instrumented.ll")
+      
+      # Get include paths from linked libraries
+      set(include_args "")
+      foreach(lib ${ARGS_LINK_WITH})
+        if(TARGET ${lib})
+          get_target_property(lib_includes ${lib} INTERFACE_INCLUDE_DIRECTORIES)
+          if(lib_includes)
+            foreach(include_dir ${lib_includes})
+              list(APPEND include_args "-I${include_dir}")
+            endforeach()
+          endif()
+        endif()
+      endforeach()
+      
+      # Add PCL and system include paths
+      list(APPEND include_args 
+        "-I${PROJECT_SOURCE_DIR}"
+        "-I${PROJECT_BINARY_DIR}/include" 
+        "-I${PROJECT_SOURCE_DIR}/test/include"
+        "-I${FLANN_INSTALL_PATH}/include"
+        "-I/home/uvxiao/.local/include"
+        "-I/usr/include/eigen3"
+        "-I${PROJECT_SOURCE_DIR}/common/include"
+        "-I${PROJECT_SOURCE_DIR}/filters/include"
+        "-I${PROJECT_SOURCE_DIR}/2d/include"
+        "-I${PROJECT_SOURCE_DIR}/geometry/include"
+        "-I${PROJECT_SOURCE_DIR}/octree/include"
+        "-I${PROJECT_SOURCE_DIR}/features/include"
+        "-I${PROJECT_SOURCE_DIR}/kdtree/include"
+        "-I${PROJECT_SOURCE_DIR}/search/include"
+        "-I${PROJECT_SOURCE_DIR}/io/include"
+        "-I${PROJECT_SOURCE_DIR}/ml/include"
+        "-I${PROJECT_SOURCE_DIR}/segmentation/include"
+        "-I${PROJECT_SOURCE_DIR}/surface/include"
+        "-I${PROJECT_SOURCE_DIR}/registration/include"
+        "-I${PROJECT_SOURCE_DIR}/keypoints/include"
+        "-I${PROJECT_SOURCE_DIR}/tracking/include"
+        "-I${PROJECT_SOURCE_DIR}/recognition/include"
+        "-I${PROJECT_SOURCE_DIR}/stereo/include"
+        "-I${PROJECT_SOURCE_DIR}/sample_consensus/include"
+      )
+      
+      # Compile to LLVM IR
+      add_custom_command(
+        OUTPUT ${ll_file}
+        COMMAND ${CLANG}++ -S -emit-llvm -std=c++17 -fPIC -O2
+               -fno-vectorize -fno-slp-vectorize -ffp-contract=off 
+               -mno-avx -mno-avx2 -mno-avx512f -mno-fma
+               ${include_args}
+               -c ${abs_source_file} -o ${ll_file}
+        DEPENDS ${abs_source_file}
+        COMMENT "Generating LLVM IR for ${source_file}"
+      )
+      
+      # Instrument LLVM IR with fast counting
+      add_custom_command(
+        OUTPUT ${ll_instrumented_file}
+        COMMAND ${OPT} -load-pass-plugin="${PASS_PATH}" -passes=bb_instrument -just-count ${ll_file} -o ${ll_instrumented_file}
+        DEPENDS ${ll_file}
+        COMMENT "Instrumenting LLVM IR for ${source_file} with fast counting"
+      )
+      
+      list(APPEND ll_instrumented_files ${ll_instrumented_file})
+    endforeach()
+    
+    # Link instrumented LLVM IR files into a bitcode
+    set(instrumented_bc "${CMAKE_CURRENT_BINARY_DIR}/${instrumented_exe}.bc")
+    add_custom_command(
+      OUTPUT ${instrumented_bc}
+      COMMAND ${LLVM_LINK} ${ll_instrumented_files} -o ${instrumented_bc}
+      DEPENDS ${ll_instrumented_files}
+      COMMENT "Linking instrumented LLVM IR for ${instrumented_exe}"
+    )
+    
+    # Create instrumented executable from bitcode with full library linking
+    add_custom_command(
+      OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${instrumented_exe}
+      COMMAND ${CLANG}++ -fPIC -O2 -fno-vectorize -fno-slp-vectorize -ffp-contract=off 
+              -mno-avx -mno-avx2 -mno-avx512f -mno-fma
+              ${instrumented_bc} -o ${CMAKE_CURRENT_BINARY_DIR}/${instrumented_exe}
+              -L${CMAKE_BINARY_DIR}/lib -L${FLANN_INSTALL_PATH}/lib -L/home/uvxiao/.local/lib
+              -L/usr/src/gtest
+              -lpcl_common -lpcl_kdtree -lpcl_octree -lpcl_search -lpcl_sample_consensus
+              -lpcl_filters -lpcl_io -lpcl_io_ply -lpcl_features -lpcl_ml -lpcl_segmentation
+              -lpcl_surface -lpcl_registration -lpcl_keypoints -lpcl_tracking
+              -lpcl_recognition -lpcl_stereo
+              -lflann_cpp -lgtest -lgtest_main -lpthread -llz4 -latomic
+              -lboost_system -lboost_filesystem -lboost_thread -lboost_date_time
+              -lboost_iostreams -lboost_chrono -lpng -lusb-1.0 -lz
+              -Wl,-rpath,${CMAKE_BINARY_DIR}/lib:${FLANN_INSTALL_PATH}/lib:/home/uvxiao/.local/lib
+      DEPENDS ${instrumented_bc} pcl_gtest pcl_common ${ARGS_LINK_WITH}
+      COMMENT "Creating instrumented executable ${instrumented_exe}"
+    )
+    
+    # Create a custom target for the instrumented executable
+    add_custom_target(${instrumented_exe} ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${instrumented_exe})
+  endif()
+  
+  # Standard target configuration that works for both instrumented and non-instrumented builds
 
   # Generate .args file for each test executable as per INSTRUMENT.md requirements
   if(ARGS_ARGUMENTS)
@@ -686,18 +806,32 @@ macro(PCL_ADD_TEST _name _exename)
     file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/${_exename}.args" "")
   endif()
 
-  # Add post-build step to fix library paths using patchelf
-  if(UNIX AND NOT APPLE)
-    add_custom_command(TARGET ${_exename} POST_BUILD
-      COMMAND ${CMAKE_SOURCE_DIR}/../fix_binary_libs.sh $<TARGET_FILE:${_exename}> ${CMAKE_BINARY_DIR}/lib ${FLANN_INSTALL_PATH}/lib
-      COMMENT "Fixing library paths for ${_exename}"
-    )
+  if(NOT PCL_INSTRUMENTATION_ENABLED)
+    # Add post-build step to fix library paths using patchelf
+    if(UNIX AND NOT APPLE)
+      add_custom_command(TARGET ${_exename} POST_BUILD
+        COMMAND ${CMAKE_SOURCE_DIR}/../fix_binary_libs.sh $<TARGET_FILE:${_exename}> ${CMAKE_BINARY_DIR}/lib ${FLANN_INSTALL_PATH}/lib
+        COMMENT "Fixing library paths for ${_exename}"
+      )
+    endif()
+
+    set_target_properties(${_exename} PROPERTIES FOLDER "Tests")
   endif()
-
-  set_target_properties(${_exename} PROPERTIES FOLDER "Tests")
-  add_test(NAME ${_name} COMMAND ${_exename} ${ARGS_ARGUMENTS})
-
-  add_dependencies(tests ${_exename})
+  
+  # Add both regular and instrumented tests to the test framework
+  if(PCL_INSTRUMENTATION_ENABLED)
+    # Use instrumented version for actual testing
+    set(instrumented_exe "${_exename}_instrumented")
+    add_test(NAME ${_name} COMMAND ${CMAKE_CURRENT_BINARY_DIR}/${instrumented_exe} ${ARGS_ARGUMENTS})
+    add_test(NAME ${_name}_regular COMMAND ${_exename} ${ARGS_ARGUMENTS})
+    
+    # Add both to global test dependencies
+    add_dependencies(tests ${_exename})
+    add_dependencies(tests ${instrumented_exe})
+  else()
+    add_test(NAME ${_name} COMMAND ${_exename} ${ARGS_ARGUMENTS})
+    add_dependencies(tests ${_exename})
+  endif()
 endmacro()
 
 ###############################################################################
