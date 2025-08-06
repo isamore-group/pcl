@@ -653,12 +653,192 @@ macro(PCL_ADD_TEST _name _exename)
     message(FATAL_ERROR "Unknown arguments given to PCL_ADD_TEST: ${ARGS_UNPARSED_ARGUMENTS}")
   endif()
 
+  if(PCL_INSTRUMENTATION_ENABLED)
+    # For instrumentation: create LLVM IR version of test binary, then instrument it
+    # Step 1: Create a special instrumented executable
+    set(instrumented_sources "")
+    set(ll_instrumented_files "")
+    
+    # Convert each source file to instrumented LLVM IR
+    foreach(source_file ${ARGS_FILES})
+      get_filename_component(source_name ${source_file} NAME_WE)
+      get_filename_component(source_dir ${source_file} DIRECTORY)
+      
+      # Make source path absolute if relative
+      if(NOT IS_ABSOLUTE ${source_file})
+        set(abs_source_file "${CMAKE_CURRENT_SOURCE_DIR}/${source_file}")
+      else()
+        set(abs_source_file ${source_file})
+      endif()
+      
+      set(ll_file "${CMAKE_CURRENT_BINARY_DIR}/${source_name}.ll")
+      set(ll_instrumented_file "${CMAKE_CURRENT_BINARY_DIR}/${source_name}_instrumented.ll")
+      
+      # Get include paths and compile definitions from linked libraries
+      set(include_args "")
+      foreach(lib ${ARGS_LINK_WITH})
+        if(TARGET ${lib})
+          get_target_property(lib_includes ${lib} INTERFACE_INCLUDE_DIRECTORIES)
+          if(lib_includes)
+            foreach(include_dir ${lib_includes})
+              list(APPEND include_args "-I${include_dir}")
+            endforeach()
+          endif()
+          
+          get_target_property(lib_compile_defs ${lib} INTERFACE_COMPILE_DEFINITIONS)
+          if(lib_compile_defs)
+            foreach(def ${lib_compile_defs})
+              list(APPEND include_args "-D${def}")
+            endforeach()
+          endif()
+        endif()
+      endforeach()
+      
+      # Add comprehensive PCL and system include paths
+      list(APPEND include_args 
+        "-I${PROJECT_SOURCE_DIR}"
+        "-I${PROJECT_BINARY_DIR}/include" 
+        "-I${PROJECT_SOURCE_DIR}/test"
+        "-I${PROJECT_SOURCE_DIR}/test/include"
+        "-I${PROJECT_SOURCE_DIR}/common/include"
+        "-I${PROJECT_SOURCE_DIR}/2d/include"
+        "-I${PROJECT_SOURCE_DIR}/geometry/include"
+        "-I${PROJECT_SOURCE_DIR}/io/include"
+        "-I${PROJECT_SOURCE_DIR}/kdtree/include"
+        "-I${PROJECT_SOURCE_DIR}/octree/include"
+        "-I${PROJECT_SOURCE_DIR}/search/include"
+        "-I${PROJECT_SOURCE_DIR}/sample_consensus/include"
+        "-I${PROJECT_SOURCE_DIR}/filters/include"
+        "-I${PROJECT_SOURCE_DIR}/features/include"
+        "-I${PROJECT_SOURCE_DIR}/ml/include"
+        "-I${PROJECT_SOURCE_DIR}/segmentation/include"
+        "-I${PROJECT_SOURCE_DIR}/surface/include"
+        "-I${PROJECT_SOURCE_DIR}/registration/include"
+        "-I${PROJECT_SOURCE_DIR}/keypoints/include"
+        "-I${PROJECT_SOURCE_DIR}/tracking/include"
+        "-I${PROJECT_SOURCE_DIR}/recognition/include"
+        "-I${PROJECT_SOURCE_DIR}/stereo/include"
+        "-I${FLANN_INSTALL_PATH}/include"
+        "-I/home/uvxiao/.local/include"
+        "-I/usr/include/eigen3"
+        "-I/usr/include"
+        "-I/usr/local/include"
+        "-I/usr/include/boost"
+        "-I/usr/include/vtk-9.1"
+        "-I/usr/include/jsoncpp"
+        "-I/usr/include/libusb-1.0"
+        "-I/usr/src/gtest/include"
+        "-I/usr/src/gmock/include"
+        "-I${CMAKE_INSTALL_PREFIX}/include"
+      )
+      
+      # Compile to LLVM IR
+      add_custom_command(
+        OUTPUT ${ll_file}
+        COMMAND ${CLANG}++ -S -emit-llvm -std=c++17 -fPIC -O2
+               -fno-vectorize -fno-slp-vectorize -ffp-contract=off 
+               -mno-avx -mno-avx2 -mno-avx512f -mno-fma
+               -DPCL_NO_PRECOMPILE -DPCL_ONLY_CORE_POINT_TYPES
+               ${include_args}
+               -c ${abs_source_file} -o ${ll_file}
+        DEPENDS ${abs_source_file}
+        COMMENT "Generating LLVM IR for ${source_file}"
+        VERBATIM
+      )
+      
+      # Instrument LLVM IR
+      add_custom_command(
+        OUTPUT ${ll_instrumented_file}
+        COMMAND bash -c "if [ -s ${ll_file} ] && head -1 ${ll_file} | grep -q '^;\\|^define\\|^declare\\|^target'; then ${OPT} -load-pass-plugin=\"${PASS_PATH}\" -passes=bb_instrument ${ll_file} -o ${ll_instrumented_file}; else echo 'Error: Invalid LLVM IR file ${ll_file}' && exit 1; fi"
+        DEPENDS ${ll_file}
+        COMMENT "Instrumenting LLVM IR for ${source_file}"
+        VERBATIM
+      )
+      
+      list(APPEND ll_instrumented_files ${ll_instrumented_file})
+    endforeach()
+    
+    # Link instrumented LLVM IR files into a bitcode
+    set(instrumented_bc "${CMAKE_CURRENT_BINARY_DIR}/${_exename}_instrumented.bc")
+    add_custom_command(
+      OUTPUT ${instrumented_bc}
+      COMMAND ${LLVM_LINK} ${ll_instrumented_files} -o ${instrumented_bc}
+      DEPENDS ${ll_instrumented_files}
+      COMMENT "Linking instrumented LLVM IR for ${_exename}"
+    )
+    
+    # Create instrumented executable from bitcode with different name
+    set(instrumented_exe "${CMAKE_CURRENT_BINARY_DIR}/${_exename}_instrumented")
+    
+    # Build link command similar to regular test, let CMake resolve targets properly
+    set(link_libs "")
+    
+    # Add library paths first
+    list(APPEND link_libs 
+      "-L${CMAKE_BINARY_DIR}/lib" 
+      "-L${FLANN_INSTALL_PATH}/lib" 
+      "-L/home/uvxiao/.local/lib"
+      "-Wl,-rpath,${CMAKE_BINARY_DIR}/lib:${FLANN_INSTALL_PATH}/lib:/home/uvxiao/.local/lib"
+    )
+    
+    # Add the actual library files that regular tests link with
+    # Start with base libraries that all tests need
+    list(APPEND link_libs 
+      "${CMAKE_BINARY_DIR}/lib/libpcl_gtest.a"
+      "${CMAKE_BINARY_DIR}/lib/libpcl_common.so.1.15.0.99"
+    )
+    
+    # Add all available PCL shared libraries - let the linker figure out which are needed
+    foreach(pcl_lib 
+      "pcl_kdtree" "pcl_octree" "pcl_search" "pcl_sample_consensus" 
+      "pcl_filters" "pcl_io_ply" "pcl_io" "pcl_features" "pcl_ml" 
+      "pcl_segmentation" "pcl_surface" "pcl_registration" "pcl_keypoints" 
+      "pcl_tracking" "pcl_recognition" "pcl_stereo")
+      
+      if(EXISTS "${CMAKE_BINARY_DIR}/lib/lib${pcl_lib}.so.1.15.0.99")
+        list(APPEND link_libs "${CMAKE_BINARY_DIR}/lib/lib${pcl_lib}.so.1.15.0.99")
+      endif()
+    endforeach()
+    
+    # Add system libraries
+    list(APPEND link_libs 
+      "-lstdc++"
+      "-latomic"
+      "-llz4"
+      "-lm"
+      "-lpthread"
+    )
+    
+    add_custom_command(
+      OUTPUT ${instrumented_exe}
+      COMMAND ${CLANG}++ -fPIC -O2 -fno-vectorize -fno-slp-vectorize -ffp-contract=off 
+              -mno-avx -mno-avx2 -mno-avx512f -mno-fma
+              ${instrumented_bc} -o ${instrumented_exe}
+              -L${CMAKE_BINARY_DIR}/lib -L${FLANN_INSTALL_PATH}/lib -L/home/uvxiao/.local/lib
+              -L/usr/src/gtest
+              -lpcl_common -lpcl_kdtree -lpcl_octree -lpcl_search -lpcl_sample_consensus
+              -lpcl_filters -lpcl_io -lpcl_io_ply -lpcl_features -lpcl_ml -lpcl_segmentation
+              -lpcl_surface -lpcl_registration -lpcl_keypoints -lpcl_tracking
+              -lpcl_recognition -lpcl_stereo
+              -lflann_cpp -lgtest -lgtest_main -lpthread -llz4 -latomic
+              -lboost_system -lboost_filesystem -lboost_thread -lboost_date_time
+              -lboost_iostreams -lboost_chrono -lpng -lusb-1.0 -lz
+              -Wl,-rpath,${CMAKE_BINARY_DIR}/lib:${FLANN_INSTALL_PATH}/lib:/home/uvxiao/.local/lib
+      DEPENDS ${instrumented_bc} ${_exename} ${ARGS_LINK_WITH}
+      COMMENT "Creating instrumented executable ${_exename}_instrumented"
+    )
+    
+    # Create a custom target for the instrumented executable  
+    add_custom_target(${_exename}_instrumented ALL DEPENDS ${instrumented_exe})
+  endif()
+
+  # Always build regular non-instrumented test binary
   add_executable(${_exename} ${ARGS_FILES})
+  target_link_libraries(${_exename} ${ARGS_LINK_WITH} ${CLANG_LIBRARIES})
+  
   if(NOT WIN32)
     set_target_properties(${_exename} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
   endif()
-  #target_link_libraries(${_exename} ${GTEST_BOTH_LIBRARIES} ${ARGS_LINK_WITH})
-  target_link_libraries(${_exename} ${ARGS_LINK_WITH} ${CLANG_LIBRARIES})
 
   target_link_libraries(${_exename} Threads::Threads ${ATOMIC_LIBRARY})
   target_link_libraries(${_exename} -L/home/uvxiao/.local/lib -llz4)
@@ -686,18 +866,25 @@ macro(PCL_ADD_TEST _name _exename)
     file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/${_exename}.args" "")
   endif()
 
-  # Add post-build step to fix library paths using patchelf
-  if(UNIX AND NOT APPLE)
-    add_custom_command(TARGET ${_exename} POST_BUILD
-      COMMAND ${CMAKE_SOURCE_DIR}/../fix_binary_libs.sh $<TARGET_FILE:${_exename}> ${CMAKE_BINARY_DIR}/lib ${FLANN_INSTALL_PATH}/lib
-      COMMENT "Fixing library paths for ${_exename}"
-    )
+  if(NOT PCL_INSTRUMENTATION_ENABLED)
+    # Add post-build step to fix library paths using patchelf
+    if(UNIX AND NOT APPLE)
+      add_custom_command(TARGET ${_exename} POST_BUILD
+        COMMAND ${CMAKE_SOURCE_DIR}/../fix_binary_libs.sh $<TARGET_FILE:${_exename}> ${CMAKE_BINARY_DIR}/lib ${FLANN_INSTALL_PATH}/lib
+        COMMENT "Fixing library paths for ${_exename}"
+      )
+    endif()
+
+    set_target_properties(${_exename} PROPERTIES FOLDER "Tests")
   endif()
-
-  set_target_properties(${_exename} PROPERTIES FOLDER "Tests")
+  
   add_test(NAME ${_name} COMMAND ${_exename} ${ARGS_ARGUMENTS})
-
   add_dependencies(tests ${_exename})
+  
+  # Also add instrumented test to tests target if instrumentation is enabled
+  if(PCL_INSTRUMENTATION_ENABLED)
+    add_dependencies(tests ${_exename}_instrumented)
+  endif()
 endmacro()
 
 ###############################################################################
@@ -1210,7 +1397,11 @@ endmacro()
 #    see PCL_ADD_TEST documentation
 macro (PCL_ADD_COMPILETIME_AND_RUNTIME_TEST _name _exename)
   PCL_ADD_TEST("${_name}_runtime" "${_exename}_runtime" ${ARGN})
-  target_compile_definitions("${_exename}_runtime" PRIVATE PCL_RUN_TESTS_AT_COMPILE_TIME=false)
+  if(NOT PCL_INSTRUMENTATION_ENABLED)
+    target_compile_definitions("${_exename}_runtime" PRIVATE PCL_RUN_TESTS_AT_COMPILE_TIME=false)
+  endif()
   PCL_ADD_TEST("${_name}_compiletime" "${_exename}_compiletime" ${ARGN})
-  target_compile_definitions("${_exename}_compiletime" PRIVATE PCL_RUN_TESTS_AT_COMPILE_TIME=true)
+  if(NOT PCL_INSTRUMENTATION_ENABLED)
+    target_compile_definitions("${_exename}_compiletime" PRIVATE PCL_RUN_TESTS_AT_COMPILE_TIME=true)
+  endif()
 endmacro()
