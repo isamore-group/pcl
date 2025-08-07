@@ -677,6 +677,7 @@ macro(PCL_ADD_TEST _name _exename)
     # Create instrumented version as a separate executable
     set(instrumented_exe "${_exename}_instrumented")
     set(ll_instrumented_files "")
+    set(ll_files "")
     
     # Convert each source file to instrumented LLVM IR
     foreach(source_file ${ARGS_FILES})
@@ -755,6 +756,8 @@ macro(PCL_ADD_TEST _name _exename)
       )
       
       list(APPEND ll_instrumented_files ${ll_instrumented_file})
+      # Also preserve non-instrumented .ll files
+      list(APPEND ll_files ${ll_file})
     endforeach()
     
     # Link instrumented LLVM IR files into a bitcode
@@ -788,6 +791,9 @@ macro(PCL_ADD_TEST _name _exename)
     
     # Create a custom target for the instrumented executable
     add_custom_target(${instrumented_exe} ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${instrumented_exe})
+    
+    # Create custom target to build non-instrumented .ll files
+    add_custom_target(${_exename}_ll ALL DEPENDS ${ll_files})
   endif()
   
   # Standard target configuration that works for both instrumented and non-instrumented builds
